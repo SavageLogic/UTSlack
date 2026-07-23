@@ -7,6 +7,8 @@ Page {
 
     property var app
     property var bottomEdgeHost: null
+    // BottomEdge content is not on the PageStack — callers must set this.
+    property var navigationStack: null
     property bool loading: false
     property bool opening: false
     property string errorText: ""
@@ -21,6 +23,10 @@ Page {
 
     ListModel {
         id: pickerModel
+    }
+
+    function stack() {
+        return navigationStack || pageStack
     }
 
     function matchesFilter(item, q) {
@@ -75,18 +81,33 @@ Page {
     }
 
     function openChat(channelId, title) {
-        if (app)
-            app.pendingConversationsReload = true
-        if (bottomEdgeHost) {
-            bottomEdgeHost.collapse()
-        } else {
-            pageStack.pop()
+        var theApp = newConversationPage.app
+        var host = newConversationPage.bottomEdgeHost
+        var stack = newConversationPage.stack()
+        if (theApp)
+            theApp.pendingConversationsReload = true
+        if (!stack) {
+            errorText = i18n.tr("Couldn't open conversation")
+            opening = false
+            return
         }
-        pageStack.push(Qt.resolvedUrl("ChatPage.qml"), {
-            app: newConversationPage.app,
-            channelId: channelId,
-            channelTitle: title
-        })
+
+        if (host) {
+            // Push first — collapsing the BottomEdge destroys this page.
+            stack.push(Qt.resolvedUrl("ChatPage.qml"), {
+                app: theApp,
+                channelId: channelId,
+                channelTitle: title
+            })
+            host.collapse()
+        } else {
+            stack.pop()
+            stack.push(Qt.resolvedUrl("ChatPage.qml"), {
+                app: theApp,
+                channelId: channelId,
+                channelTitle: title
+            })
+        }
     }
 
     function selectItem(item) {

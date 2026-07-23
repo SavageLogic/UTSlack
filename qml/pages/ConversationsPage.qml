@@ -231,7 +231,8 @@ Page {
 
     function openNewConversation() {
         pageStack.push(Qt.resolvedUrl("NewConversationPage.qml"), {
-            app: conversationsPage.app
+            app: conversationsPage.app,
+            navigationStack: pageStack
         })
     }
 
@@ -686,11 +687,13 @@ Page {
             contentItem.width = Qt.binding(function() { return newChatBottomEdge.width })
             contentItem.height = Qt.binding(function() { return newChatBottomEdge.height })
             contentItem.app = conversationsPage.app
+            contentItem.navigationStack = conversationsPage.pageStack
             contentItem.bottomEdgeHost = newChatBottomEdge
         }
         onCommitStarted: {
             if (contentItem) {
                 contentItem.app = conversationsPage.app
+                contentItem.navigationStack = conversationsPage.pageStack
                 contentItem.bottomEdgeHost = newChatBottomEdge
             }
         }
