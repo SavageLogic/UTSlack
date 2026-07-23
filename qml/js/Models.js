@@ -298,6 +298,47 @@ function escapeHtml(text) {
         .replace(/"/g, "&quot;")
 }
 
+// Slack rich_text emoji.unicode is lowercase hex codepoints, e.g. "1f600" or "1f1e6-1f1fd"
+function unicodeHexToEmoji(hex) {
+    if (!hex)
+        return ""
+    var parts = ("" + hex).toLowerCase().split(/[\s-]+/)
+    var out = ""
+    for (var i = 0; i < parts.length; i++) {
+        var part = parts[i]
+        if (!part || !/^[0-9a-f]+$/.test(part))
+            continue
+        var cp = parseInt(part, 16)
+        if (isNaN(cp) || cp <= 0)
+            continue
+        if (typeof String.fromCodePoint === "function") {
+            out += String.fromCodePoint(cp)
+            continue
+        }
+        if (cp <= 0xFFFF) {
+            out += String.fromCharCode(cp)
+            continue
+        }
+        // Surrogate pair for older JS engines
+        var adj = cp - 0x10000
+        out += String.fromCharCode(0xD800 + (adj >> 10), 0xDC00 + (adj & 0x3FF))
+    }
+    return out
+}
+
+function emojiElementToText(el) {
+    if (!el)
+        return ""
+    if (el.unicode) {
+        var glyph = unicodeHexToEmoji(el.unicode)
+        if (glyph)
+            return glyph
+    }
+    if (el.name)
+        return ":" + el.name + ":"
+    return ""
+}
+
 function nlToBr(text) {
     return ("" + (text || "")).replace(/\r\n|\r|\n/g, "<br>")
 }
@@ -366,9 +407,7 @@ function formatRichTextLeaf(el) {
     case "channel":
         return "<b>" + escapeHtml("#" + (el.channel_id || "channel")) + "</b>"
     case "emoji":
-        if (el.unicode)
-            return escapeHtml(el.unicode)
-        return escapeHtml(":" + (el.name || "") + ":")
+        return escapeHtml(emojiElementToText(el))
     case "broadcast":
         return "<b>@" + escapeHtml(el.range || "here") + "</b>"
     case "color":
@@ -462,7 +501,7 @@ function stripRichTextLeaf(el) {
     case "channel":
         return "#" + (el.channel_id || "channel")
     case "emoji":
-        return el.unicode || (":" + (el.name || "") + ":")
+        return emojiElementToText(el)
     case "broadcast":
         return "@" + (el.range || "here")
     case "date":
