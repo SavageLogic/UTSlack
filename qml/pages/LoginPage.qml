@@ -154,7 +154,7 @@ Page {
                 wrapMode: Text.Wrap
                 fontSize: "small"
                 color: theme.palette.normal.backgroundTertiaryText
-                text: i18n.tr("Required user scopes: channels/groups/im/mpim read+history+write, users:read, chat:write, search:read, files:read/write")
+                text: i18n.tr("Required user scopes: channels/groups/im/mpim read+history+write, users:read, chat:write, search:read, files:read/write, reactions:write, emoji:read")
             }
         }
     }

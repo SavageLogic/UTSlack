@@ -11,6 +11,7 @@ Native Slack client for [Ubuntu Touch](https://ubuntu-touch.io/), built with QML
 - Open **threads**, read replies, and reply in a dedicated thread view
 - Search within a conversation
 - Send messages and upload photos/files
+- **Emoji reactions** — view, toggle, and add from a quick picker
 - Poll for new messages while a chat is open (~8s)
 - Push notifications for new messages while the app is running (UBports Push)
 
@@ -44,6 +45,8 @@ Native Slack client for [Ubuntu Touch](https://ubuntu-touch.io/), built with QML
    | `files:read` | Display images and file previews |
    | `files:write` | Upload photos and files |
    | `search:read` | Search messages within a conversation |
+   | `reactions:write` | Add and remove emoji reactions |
+   | `emoji:read` | Resolve workspace custom emoji for reactions |
 
 3. Click **Install to Workspace** and allow access
 4. Copy the **User OAuth Token** (`xoxp-…`) — not the bot token
@@ -106,7 +109,7 @@ UTSlack registers as a Content Hub share target for **links**, text, pictures, d
 
 ## Not in v1
 
-Reactions, background daemon when fully suspended, and embedded OAuth (bring-your-own Client ID) are out of scope for this release.
+Background daemon when fully suspended, and embedded OAuth (bring-your-own Client ID) are out of scope for this release.
 
 ## License
 

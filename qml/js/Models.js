@@ -339,6 +339,158 @@ function emojiElementToText(el) {
     return ""
 }
 
+// Common Slack reaction short names → unicode hex (for chips + quick picker)
+var _REACTION_UNICODE = {
+    "+1": "1f44d",
+    "-1": "1f44e",
+    "thumbsup": "1f44d",
+    "thumbsdown": "1f44e",
+    "heart": "2764-fe0f",
+    "heart_eyes": "1f60d",
+    "eyes": "1f440",
+    "fire": "1f525",
+    "tada": "1f389",
+    "clap": "1f44f",
+    "pray": "1f64f",
+    "ok_hand": "1f44c",
+    "wave": "1f44b",
+    "smile": "1f604",
+    "grinning": "1f600",
+    "joy": "1f602",
+    "laughing": "1f606",
+    "thinking_face": "1f914",
+    "confused": "1f615",
+    "cry": "1f622",
+    "sob": "1f62d",
+    "angry": "1f620",
+    "scream": "1f631",
+    "open_mouth": "1f62e",
+    "neutral_face": "1f610",
+    "white_check_mark": "2705",
+    "x": "274c",
+    "heavy_check_mark": "2714-fe0f",
+    "100": "1f4af",
+    "rocket": "1f680",
+    "star": "2b50",
+    "sparkles": "2728",
+    "raised_hands": "1f64c",
+    "muscle": "1f4aa",
+    "handshake": "1f91d",
+    "point_up": "261d-fe0f",
+    "point_right": "1f449",
+    "boom": "1f4a5",
+    "hankey": "1f4a9",
+    "hooray": "1f389",
+    "stuck_out_tongue_winking_eye": "1f61c",
+    "sunglasses": "1f60e",
+    "sweat_smile": "1f605",
+    "blush": "1f60a",
+    "wink": "1f609",
+    "yum": "1f60b"
+}
+
+function commonReactionNames() {
+    return [
+        "+1", "-1", "heart", "heart_eyes", "eyes", "fire", "tada", "clap",
+        "pray", "ok_hand", "wave", "smile", "joy", "thinking_face",
+        "white_check_mark", "x", "100", "rocket", "star", "sparkles",
+        "raised_hands", "muscle", "handshake", "sweat_smile", "sunglasses",
+        "scream", "cry", "angry", "boom", "confused"
+    ]
+}
+
+function unicodeForReactionName(name) {
+    if (!name)
+        return ""
+    var base = ("" + name).split("::")[0]
+    var hex = _REACTION_UNICODE[base]
+    if (!hex)
+        return ""
+    return unicodeHexToEmoji(hex)
+}
+
+// { glyph, url, label } for UI chips / picker cells
+function reactionDisplay(name) {
+    var base = ("" + (name || "")).split("::")[0]
+    var url = ""
+    try {
+        url = Slack.getCustomEmojiUrl(base) || ""
+    } catch (e) {}
+    var glyph = unicodeForReactionName(base)
+    return {
+        name: base,
+        glyph: glyph,
+        url: url,
+        label: glyph || (":" + base + ":")
+    }
+}
+
+function normalizeReactions(reactions, selfUserId) {
+    var out = []
+    if (!reactions || !reactions.length)
+        return out
+    var selfId = selfUserId || ""
+    if (!selfId) {
+        var auth = Slack.getAuthInfo()
+        selfId = (auth && auth.userId) ? auth.userId : ""
+    }
+    for (var i = 0; i < reactions.length; i++) {
+        var r = reactions[i]
+        if (!r || !r.name)
+            continue
+        var users = r.users || []
+        var me = false
+        if (selfId) {
+            for (var u = 0; u < users.length; u++) {
+                if (users[u] === selfId) {
+                    me = true
+                    break
+                }
+            }
+        }
+        out.push({
+            name: r.name,
+            count: Number(r.count) || users.length || 1,
+            me: me
+        })
+    }
+    return out
+}
+
+function applyReactionOptimistic(reactions, name, add) {
+    var list = []
+    var i
+    var found = false
+    var src = reactions || []
+    for (i = 0; i < src.length; i++) {
+        var r = {
+            name: src[i].name,
+            count: Number(src[i].count) || 0,
+            me: !!src[i].me
+        }
+        if (r.name === name) {
+            found = true
+            if (add) {
+                if (!r.me) {
+                    r.count++
+                    r.me = true
+                }
+            } else {
+                if (r.me) {
+                    r.count--
+                    r.me = false
+                }
+                if (r.count <= 0)
+                    continue
+            }
+        }
+        list.push(r)
+    }
+    if (add && !found)
+        list.push({ name: name, count: 1, me: true })
+    return list
+}
+
 function nlToBr(text) {
     return ("" + (text || "")).replace(/\r\n|\r|\n/g, "<br>")
 }
@@ -799,6 +951,7 @@ function normalizeMessages(messages, options) {
         var ts = m.ts || ""
         var threadTs = m.thread_ts || ""
         var replyCount = Number(m.reply_count) || 0
+        var reactions = normalizeReactions(m.reactions)
         items.push({
             ts: ts,
             userId: userId,
@@ -809,6 +962,7 @@ function normalizeMessages(messages, options) {
             rawText: raw,
             imagesJson: JSON.stringify(images),
             hasImages: images.length > 0,
+            reactionsJson: JSON.stringify(reactions),
             timeLabel: formatTs(m.ts),
             dayLabel: formatDay(m.ts),
             replyCount: replyCount,

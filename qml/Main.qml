@@ -283,6 +283,7 @@ MainView {
             }
             Storage.setToken(cleaned)
             applyAuth(res)
+            Slack.ensureCustomEmoji(function() {})
             showConversations()
             if (callback)
                 callback(true, "")
@@ -538,6 +539,69 @@ MainView {
         })
     }
 
+    function loadCustomEmoji(callback) {
+        Slack.ensureCustomEmoji(function(res) {
+            if (callback)
+                callback(!!(res && res.ok), Slack.getCustomEmojiMap())
+        })
+    }
+
+    function reactionDisplay(name) {
+        return Models.reactionDisplay(name)
+    }
+
+    function commonReactions() {
+        return Models.commonReactionNames()
+    }
+
+    function customEmojiNames() {
+        var map = Slack.getCustomEmojiMap() || {}
+        var names = []
+        for (var n in map) {
+            if (map.hasOwnProperty(n))
+                names.push(n)
+        }
+        names.sort()
+        return names
+    }
+
+    function addReaction(channelId, ts, name, callback) {
+        if (!callback)
+            callback = function() {}
+        Slack.reactionsAdd(channelId, ts, name, function(res) {
+            if (!res || !res.ok) {
+                var msg = (res && (res.message || res.error)) || i18n.tr("Couldn't add reaction")
+                if (res && res.error === "missing_scope")
+                    msg = i18n.tr("Add reactions:write (and emoji:read) user scopes, reinstall the Slack app, and paste a new token.")
+                callback(false, msg)
+                return
+            }
+            callback(true, "")
+        })
+    }
+
+    function removeReaction(channelId, ts, name, callback) {
+        if (!callback)
+            callback = function() {}
+        Slack.reactionsRemove(channelId, ts, name, function(res) {
+            if (!res || !res.ok) {
+                var msg = (res && (res.message || res.error)) || i18n.tr("Couldn't remove reaction")
+                if (res && res.error === "missing_scope")
+                    msg = i18n.tr("Add reactions:write user scope, reinstall the Slack app, and paste a new token.")
+                callback(false, msg)
+                return
+            }
+            callback(true, "")
+        })
+    }
+
+    function toggleReaction(channelId, ts, name, currentlyMine, callback) {
+        if (currentlyMine)
+            removeReaction(channelId, ts, name, callback)
+        else
+            addReaction(channelId, ts, name, callback)
+    }
+
     function copyImageToClipboard(info, callback) {
         if (!callback)
             callback = function() {}
@@ -657,6 +721,7 @@ MainView {
             Slack.authTest(function(res) {
                 if (res && res.ok) {
                     applyAuth(res)
+                    Slack.ensureCustomEmoji(function() {})
                     showConversations()
                 } else {
                     Storage.clearToken()

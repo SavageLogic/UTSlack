@@ -33,6 +33,8 @@ function clearCache() {
     _authInfo = null
     _imageCache = {}
     _markedUpTo = {}
+    _customEmoji = {}
+    _customEmojiLoaded = false
 }
 
 function userDisplayName(userId) {
@@ -548,6 +550,73 @@ function chatPostMessage(channelId, text, callback, options) {
     if (options.threadTs)
         args.thread_ts = options.threadTs
     api("chat.postMessage", args, callback)
+}
+
+function reactionsAdd(channelId, ts, name, callback) {
+    api("reactions.add", {
+        channel: channelId,
+        timestamp: ts,
+        name: name
+    }, callback)
+}
+
+function reactionsRemove(channelId, ts, name, callback) {
+    api("reactions.remove", {
+        channel: channelId,
+        timestamp: ts,
+        name: name
+    }, callback)
+}
+
+var _customEmoji = {}
+var _customEmojiLoaded = false
+
+function getCustomEmojiUrl(name) {
+    if (!name)
+        return ""
+    var key = ("" + name).split("::")[0]
+    return _customEmoji[key] || ""
+}
+
+function getCustomEmojiMap() {
+    return _customEmoji
+}
+
+function emojiList(callback) {
+    if (!callback)
+        callback = function() {}
+    api("emoji.list", {}, function(res) {
+        if (res && res.ok && res.emoji) {
+            _customEmoji = {}
+            var raw = res.emoji
+            for (var name in raw) {
+                if (!raw.hasOwnProperty(name))
+                    continue
+                var val = raw[name]
+                // Slack alias: "alias:othername"
+                if (typeof val === "string" && val.indexOf("alias:") === 0) {
+                    var target = val.substring(6)
+                    if (raw[target] && ("" + raw[target]).indexOf("http") === 0)
+                        _customEmoji[name] = raw[target]
+                    continue
+                }
+                if (typeof val === "string" && val.indexOf("http") === 0)
+                    _customEmoji[name] = val
+            }
+            _customEmojiLoaded = true
+        }
+        callback(res)
+    })
+}
+
+function ensureCustomEmoji(callback) {
+    if (!callback)
+        callback = function() {}
+    if (_customEmojiLoaded) {
+        callback({ ok: true, emoji: _customEmoji })
+        return
+    }
+    emojiList(callback)
 }
 
 function _guessMimeFromName(name) {

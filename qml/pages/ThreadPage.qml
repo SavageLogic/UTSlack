@@ -3,6 +3,7 @@ import Lomiri.Components 1.3
 import Lomiri.Components.Popups 1.3
 import QtQuick.Dialogs 1.3
 import "../components"
+import "../js/Models.js" as Models
 
 Page {
     id: threadPage
@@ -12,6 +13,7 @@ Page {
     property string channelTitle: ""
     property string threadTs: ""
     property var rootMessage: null
+    property string pendingReactionTs: ""
 
     property bool loading: false
     property bool sending: false
@@ -77,6 +79,7 @@ Page {
                 text: m.text,
                 plainText: m.plainText || "",
                 imagesJson: m.imagesJson || "[]",
+                reactionsJson: m.reactionsJson || "[]",
                 timeLabel: m.timeLabel,
                 isSelf: app && app.userId && m.userId === app.userId,
                 replyCount: m.replyCount || 0,
@@ -240,6 +243,78 @@ Page {
             errorText = i18n.tr("Couldn't copy message")
     }
 
+    function findMessageIndex(ts) {
+        for (var i = 0; i < messageModel.count; i++) {
+            if (messageModel.get(i).ts === ts)
+                return i
+        }
+        return -1
+    }
+
+    function updateReactionsOptimistic(ts, name, add) {
+        var idx = findMessageIndex(ts)
+        if (idx < 0)
+            return
+        var list = []
+        try {
+            list = JSON.parse(messageModel.get(idx).reactionsJson || "[]") || []
+        } catch (e) {
+            list = []
+        }
+        list = Models.applyReactionOptimistic(list, name, add)
+        messageModel.setProperty(idx, "reactionsJson", JSON.stringify(list))
+    }
+
+    function handleReactionToggle(ts, name, currentlyMine) {
+        if (!app || !channelId || !ts || !name)
+            return
+        updateReactionsOptimistic(ts, name, !currentlyMine)
+        app.toggleReaction(channelId, ts, name, currentlyMine, function(ok, message) {
+            if (!ok) {
+                updateReactionsOptimistic(ts, name, currentlyMine)
+                errorText = message || i18n.tr("Couldn't update reaction")
+            }
+        })
+    }
+
+    function openReactionPicker(ts) {
+        if (!ts)
+            return
+        pendingReactionTs = ts
+        if (app && app.loadCustomEmoji)
+            app.loadCustomEmoji(function() {})
+        PopupUtils.open(reactionPickerComponent, threadPage)
+    }
+
+    function applyPickedReaction(name) {
+        var ts = pendingReactionTs
+        pendingReactionTs = ""
+        if (!ts || !name || !app || !channelId)
+            return
+        var idx = findMessageIndex(ts)
+        var alreadyMine = false
+        if (idx >= 0) {
+            try {
+                var list = JSON.parse(messageModel.get(idx).reactionsJson || "[]") || []
+                for (var i = 0; i < list.length; i++) {
+                    if (list[i].name === name && list[i].me) {
+                        alreadyMine = true
+                        break
+                    }
+                }
+            } catch (e) {}
+        }
+        if (alreadyMine)
+            return
+        updateReactionsOptimistic(ts, name, true)
+        app.addReaction(channelId, ts, name, function(ok, message) {
+            if (!ok) {
+                updateReactionsOptimistic(ts, name, false)
+                errorText = message || i18n.tr("Couldn't add reaction")
+            }
+        })
+    }
+
     function copyImage(info) {
         if (!info || !app || !app.copyImageToClipboard)
             return
@@ -319,6 +394,7 @@ Page {
             timeLabel: model.timeLabel
             isSelf: model.isSelf
             imagesJson: model.imagesJson || "[]"
+            reactionsJson: model.reactionsJson || "[]"
             replyCount: 0
             threadTs: model.threadTs || ""
             showThreadActions: false
@@ -326,6 +402,8 @@ Page {
             onImageDownloadRequested: threadPage.downloadImage(imageInfo)
             onImageCopyRequested: threadPage.copyImage(imageInfo)
             onCopyTextRequested: threadPage.copyMessageText(value)
+            onReactionToggled: threadPage.handleReactionToggle(ts, name, currentlyMine)
+            onAddReactionRequested: threadPage.openReactionPicker(ts)
         }
 
         Label {
@@ -387,6 +465,14 @@ Page {
         }
         onSendRequested: threadPage.sendMessage(message)
         onAttachRequested: threadPage.openAttachMenu()
+    }
+
+    Component {
+        id: reactionPickerComponent
+        ReactionPicker {
+            app: threadPage.app
+            onPicked: threadPage.applyPickedReaction(name)
+        }
     }
 
     Component {

@@ -206,17 +206,6 @@ Rectangle {
                         root.applyMention(mentionModel.get(0).label)
                         return
                     }
-                    if (root.canSend)
-                        sendButton.clicked()
-                }
-            }
-
-            Button {
-                id: sendButton
-                text: root.sending ? "…" : i18n.tr("Send")
-                color: theme.palette.normal.positive
-                enabled: root.canSend
-                onClicked: {
                     if (!root.canSend)
                         return
                     mentionModel.clear()

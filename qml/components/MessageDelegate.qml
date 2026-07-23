@@ -1,6 +1,7 @@
 import QtQuick 2.7
 import Lomiri.Components 1.3
 import Lomiri.Components.Popups 1.3
+import "../js/Models.js" as Models
 
 Item {
     id: root
@@ -15,15 +16,22 @@ Item {
     property string timeLabel: ""
     property bool isSelf: false
     property string imagesJson: "[]"
+    property string reactionsJson: "[]"
     property int replyCount: 0
     property string threadTs: ""
     property bool showThreadActions: true
 
     property var imageList: []
+    property var reactionList: []
     property bool childPressed: false
+    property bool menuOpen: false
 
     onImagesJsonChanged: parseImages()
-    Component.onCompleted: parseImages()
+    onReactionsJsonChanged: parseReactions()
+    Component.onCompleted: {
+        parseImages()
+        parseReactions()
+    }
 
     function parseImages() {
         try {
@@ -33,16 +41,41 @@ Item {
         }
     }
 
+    function parseReactions() {
+        try {
+            reactionList = JSON.parse(reactionsJson || "[]") || []
+        } catch (e) {
+            reactionList = []
+        }
+    }
+
+    function reactionGlyph(name) {
+        var d = Models.reactionDisplay(name)
+        return (d && d.glyph) ? d.glyph : ""
+    }
+
+    function reactionUrl(name) {
+        var d = Models.reactionDisplay(name)
+        return (d && d.url) ? d.url : ""
+    }
+
+    function reactionLabel(name) {
+        var d = Models.reactionDisplay(name)
+        return (d && d.label) ? d.label : (":" + name + ":")
+    }
+
     readonly property bool dark: {
         var n = "" + (theme && theme.name ? theme.name : "")
         return n.indexOf("SuruDark") !== -1
     }
-    // Slack-like press highlight (no hover on touch)
-    readonly property color pressHighlight: dark ? "#28FFFFFF" : "#14000000"
+    readonly property color pressHighlight: theme.palette.highlighted.background
     readonly property color authorColor: dark ? "#C9A0CE" : theme.palette.normal.activity
     readonly property color linkColor: dark ? "#7EB6FF" : theme.palette.normal.activity
+    readonly property color chipMineBg: dark ? "#3D2A4A" : "#F4E8F5"
+    readonly property color chipMineBorder: dark ? "#C9A0CE" : "#4A154B"
     readonly property bool hasText: root.text && root.text.length > 0 && root.text !== "<br/>"
     readonly property bool hasImages: imageList && imageList.length > 0
+    readonly property bool hasReactions: reactionList && reactionList.length > 0
     readonly property string effectiveThreadTs: root.threadTs || root.ts
     readonly property string repliesLabel: {
         if (root.replyCount <= 0)
@@ -64,16 +97,31 @@ Item {
             .replace(/&quot;/g, "\"")
             .trim()
     }
-    readonly property bool highlighted: pressArea.pressed || root.childPressed
+    readonly property bool highlighted: pressArea.pressed || root.childPressed || root.menuOpen
 
     signal imageOpenRequested(var imageInfo)
     signal imageDownloadRequested(var imageInfo)
     signal imageCopyRequested(var imageInfo)
     signal copyTextRequested(string value)
     signal threadOpenRequested(string threadTs)
+    signal reactionToggled(string ts, string name, bool currentlyMine)
+    signal addReactionRequested(string ts)
 
     function openCopyMenu(caller) {
-        PopupUtils.open(messageMenu, caller || root)
+        root.menuOpen = true
+        root.childPressed = false
+        var popup = PopupUtils.open(messageMenu, caller || root)
+        if (popup) {
+            popup.onVisibleChanged.connect(function() {
+                if (popup && !popup.visible)
+                    root.menuOpen = false
+            })
+            popup.onDestruction.connect(function() {
+                root.menuOpen = false
+            })
+        } else {
+            root.menuOpen = false
+        }
     }
 
     function openThread() {
@@ -205,6 +253,67 @@ Item {
                 }
             }
 
+            Flow {
+                id: reactionFlow
+                width: parent.width
+                spacing: units.gu(0.5)
+                visible: root.hasReactions
+
+                Repeater {
+                    model: root.reactionList
+                    delegate: AbstractButton {
+                        id: chipBtn
+                        width: chipRow.width + units.gu(1.2)
+                        height: units.gu(3.2)
+                        onPressedChanged: {
+                            if (pressed)
+                                root.beginChildPress()
+                            else
+                                root.endChildPress()
+                        }
+                        onClicked: root.reactionToggled(root.ts, modelData.name, !!modelData.me)
+
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: units.gu(1.5)
+                            color: modelData.me ? root.chipMineBg : theme.palette.normal.foreground
+                            border.width: units.dp(1)
+                            border.color: modelData.me
+                                         ? root.chipMineBorder
+                                         : theme.palette.normal.base
+                        }
+
+                        Row {
+                            id: chipRow
+                            anchors.centerIn: parent
+                            spacing: units.gu(0.4)
+
+                            Image {
+                                visible: root.reactionUrl(modelData.name).length > 0
+                                source: root.reactionUrl(modelData.name)
+                                width: units.gu(2)
+                                height: units.gu(2)
+                                fillMode: Image.PreserveAspectFit
+                                asynchronous: true
+                            }
+
+                            Label {
+                                visible: root.reactionUrl(modelData.name).length === 0
+                                text: root.reactionLabel(modelData.name)
+                                fontSize: "small"
+                                color: theme.palette.normal.backgroundText
+                            }
+
+                            Label {
+                                text: "" + (modelData.count || 1)
+                                fontSize: "x-small"
+                                color: theme.palette.normal.backgroundSecondaryText
+                            }
+                        }
+                    }
+                }
+            }
+
             AbstractButton {
                 id: repliesButton
                 visible: root.showThreadActions && root.replyCount > 0
@@ -236,6 +345,12 @@ Item {
         id: messageMenu
         ActionSelectionPopover {
             actions: ActionList {
+                Action {
+                    iconName: "add"
+                    text: i18n.tr("Add reaction")
+                    enabled: root.ts.length > 0
+                    onTriggered: root.addReactionRequested(root.ts)
+                }
                 Action {
                     iconName: "mail-reply"
                     text: i18n.tr("Reply in thread")
