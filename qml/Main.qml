@@ -451,6 +451,51 @@ MainView {
         return list
     }
 
+    function hideConversation(channelId) {
+        Storage.setConversationHidden(channelId, true)
+    }
+
+    function unhideConversation(channelId) {
+        Storage.setConversationHidden(channelId, false)
+    }
+
+    function isConversationHidden(channelId) {
+        return Storage.isConversationHidden(channelId)
+    }
+
+    function getChannelNotifyMode(channelId) {
+        return Storage.getEffectiveNotifyMode(channelId)
+    }
+
+    // mode: "all" | "mentions" | "mute"
+    // options.muteUntil: epoch ms for temporary mute
+    // Permanent mute best-effort syncs to Slack via undocumented users.prefs.set.
+    function setChannelNotifyPref(channelId, mode, options, callback) {
+        if (!callback)
+            callback = function() {}
+        options = options || {}
+        var muteUntil = options.muteUntil || 0
+        var effectiveMode = mode || "all"
+        Storage.setChannelNotifyPref(channelId, effectiveMode, muteUntil)
+
+        // Temporary mutes and mentions are local (no public Slack API).
+        // Permanent mute: try syncing muted_channels on Slack.
+        if (effectiveMode === "mute" && !muteUntil) {
+            Slack.setChannelMutedOnSlack(channelId, true, function(res) {
+                callback(!!(res && res.ok), (res && res.message) || "")
+            })
+            return
+        }
+        if (effectiveMode === "all" || effectiveMode === "mentions") {
+            Slack.setChannelMutedOnSlack(channelId, false, function(res) {
+                // Ignore Slack failures for unmute — local pref still applies
+                callback(true, "")
+            })
+            return
+        }
+        callback(true, "")
+    }
+
     PageStack {
         id: pageStack
         anchors.fill: parent

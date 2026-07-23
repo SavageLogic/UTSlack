@@ -115,3 +115,103 @@ function markChannelOpened(channelId, ts) {
         map[channelId] = next
     setLastOpenedMap(map)
 }
+
+// Manually hidden conversations (swipe → Hide); shown under See More.
+function getHiddenMap() {
+    var raw = get("hiddenConversations", "{}")
+    try {
+        return JSON.parse(raw || "{}") || {}
+    } catch (e) {
+        return {}
+    }
+}
+
+function setHiddenMap(map) {
+    try {
+        set("hiddenConversations", JSON.stringify(map || {}))
+    } catch (e) {
+    }
+}
+
+function isConversationHidden(channelId) {
+    if (!channelId)
+        return false
+    return !!getHiddenMap()[channelId]
+}
+
+function setConversationHidden(channelId, hidden) {
+    if (!channelId)
+        return
+    var map = getHiddenMap()
+    if (hidden)
+        map[channelId] = true
+    else
+        delete map[channelId]
+    setHiddenMap(map)
+}
+
+// Per-conversation notification prefs for UTSlack push.
+// mode: "all" | "mentions" | "mute"
+// muteUntil: epoch ms; >0 means temporary mute that expires.
+function getChannelNotifyPrefs() {
+    var raw = get("channelNotifyPrefs", "{}")
+    try {
+        return JSON.parse(raw || "{}") || {}
+    } catch (e) {
+        return {}
+    }
+}
+
+function setChannelNotifyPrefs(map) {
+    try {
+        set("channelNotifyPrefs", JSON.stringify(map || {}))
+    } catch (e) {
+    }
+}
+
+function setChannelNotifyPref(channelId, mode, muteUntil) {
+    if (!channelId)
+        return
+    var map = getChannelNotifyPrefs()
+    var m = mode || "all"
+    if (m !== "all" && m !== "mentions" && m !== "mute")
+        m = "all"
+    var until = muteUntil ? Number(muteUntil) : 0
+    if (m === "all" && !until) {
+        delete map[channelId]
+    } else {
+        map[channelId] = {
+            mode: m,
+            muteUntil: until > 0 ? until : 0
+        }
+    }
+    setChannelNotifyPrefs(map)
+}
+
+function getEffectiveNotifyMode(channelId) {
+    if (!channelId)
+        return "all"
+    var map = getChannelNotifyPrefs()
+    var p = map[channelId]
+    if (!p)
+        return "all"
+    var mode = p.mode || "all"
+    var until = Number(p.muteUntil) || 0
+    if (mode === "mute") {
+        if (until > 0 && until <= Date.now())
+            return "all"
+        return "mute"
+    }
+    return mode
+}
+
+function muteUntilTomorrowMs() {
+    var d = new Date()
+    d.setDate(d.getDate() + 1)
+    d.setHours(0, 0, 0, 0)
+    return d.getTime()
+}
+
+function muteUntilOneHourMs() {
+    return Date.now() + (60 * 60 * 1000)
+}

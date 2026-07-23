@@ -105,6 +105,38 @@ function splitChannelsByActivity(channels, days) {
     return { active: active, inactive: inactive }
 }
 
+// Primary list vs See More: inactive (30d) OR manually hidden.
+function splitPrimaryAndSecondary(items, days, hiddenMap) {
+    var primary = []
+    var secondary = []
+    var hidden = hiddenMap || {}
+    if (!items)
+        return { primary: primary, secondary: secondary }
+    for (var i = 0; i < items.length; i++) {
+        var it = items[i]
+        if (!it)
+            continue
+        var isHidden = !!hidden[it.id]
+        var active = isActiveWithinDays(it, days)
+        if (!isHidden && active)
+            primary.push(it)
+        else
+            secondary.push(it)
+    }
+    return { primary: primary, secondary: secondary }
+}
+
+function messageMentionsUser(msg, userId) {
+    if (!msg || !userId)
+        return false
+    var raw = msg.rawText || msg.text || ""
+    if (raw.indexOf("<@" + userId + ">") !== -1)
+        return true
+    if (/<!channel>|<!here>|<!everyone>/i.test(raw))
+        return true
+    return false
+}
+
 function splitConversationGroups(items) {
     var channels = []
     var dms = []

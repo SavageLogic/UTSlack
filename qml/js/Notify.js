@@ -51,7 +51,8 @@ function setConversations(items) {
         _conversationIds.push(it.id)
         _conversationMeta[it.id] = {
             title: it.title || it.name || it.id,
-            isIm: !!(it.isIm || it.isMpim)
+            isIm: !!(it.isIm || it.isMpim),
+            isMpim: !!it.isMpim
         }
     }
 }
@@ -113,6 +114,24 @@ function sendPush(summary, body, tag, messageObj) {
             console.log("[notify] push failed", xhr.status, xhr.responseText)
     }
     xhr.send(JSON.stringify(payload))
+}
+
+function _messageMentionsSelf(msg) {
+    return Models.messageMentionsUser(msg, _selfUserId)
+}
+
+function _shouldNotify(channelId, msg) {
+    var mode = Storage.getEffectiveNotifyMode(channelId)
+    if (mode === "mute")
+        return false
+    if (mode === "mentions") {
+        var meta = _conversationMeta[channelId] || {}
+        // 1:1 DMs are always "for you"
+        if (meta.isIm && !meta.isMpim)
+            return true
+        return _messageMentionsSelf(msg)
+    }
+    return true
 }
 
 function _notifyMessage(channelId, meta, msg) {
@@ -180,12 +199,12 @@ function pollOnce(callback) {
                             latestFresh = m
                     }
                 }
-                if (latestFresh) {
+                if (latestFresh && _shouldNotify(channelId, latestFresh)) {
                     _notifyMessage(channelId, meta, latestFresh)
                     notified++
-                }
-                if (newest && newest !== oldest)
+                } else if (newest && newest !== oldest) {
                     markSeen(channelId, newest)
+                }
             }
             next()
         })

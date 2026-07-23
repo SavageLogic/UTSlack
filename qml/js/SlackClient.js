@@ -710,6 +710,50 @@ function conversationsJoin(channelId, callback) {
     }, callback)
 }
 
+// Undocumented client prefs — best-effort mute sync with Slack.
+// Public Web API has no official per-channel notification endpoints.
+function usersPrefsGet(callback) {
+    api("users.prefs.get", {}, callback)
+}
+
+function usersPrefsSet(prefs, callback) {
+    api("users.prefs.set", {
+        prefs: prefs || {}
+    }, callback)
+}
+
+function setChannelMutedOnSlack(channelId, muted, callback) {
+    if (!callback)
+        callback = function() {}
+    if (!channelId) {
+        callback({ ok: false, error: "no_channel" })
+        return
+    }
+    usersPrefsGet(function(res) {
+        if (!res || !res.ok) {
+            callback(res || { ok: false, error: "prefs_get_failed" })
+            return
+        }
+        var prefs = res.prefs || {}
+        var raw = prefs.muted_channels || ""
+        var list = []
+        if (raw && ("" + raw).length > 0) {
+            var parts = ("" + raw).split(",")
+            for (var i = 0; i < parts.length; i++) {
+                var id = (parts[i] || "").trim()
+                if (id.length > 0 && list.indexOf(id) === -1)
+                    list.push(id)
+            }
+        }
+        var idx = list.indexOf(channelId)
+        if (muted && idx === -1)
+            list.push(channelId)
+        else if (!muted && idx !== -1)
+            list.splice(idx, 1)
+        usersPrefsSet({ muted_channels: list.join(",") }, callback)
+    })
+}
+
 // Keep only conversations that have at least one message (drops empty DM stubs).
 // Runs a few history probes in parallel to stay under rate limits.
 function filterItemsWithMessages(items, callback) {

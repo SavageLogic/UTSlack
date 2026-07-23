@@ -1,7 +1,9 @@
 import QtQuick 2.7
 import Lomiri.Components 1.3
+import Lomiri.Components.Popups 1.3
 import "../components"
 import "../js/Models.js" as Models
+import "../js/Storage.js" as Storage
 
 Page {
     id: conversationsPage
@@ -15,6 +17,9 @@ Page {
     property bool showAllChannels: false
     property bool showAllDms: false
     readonly property int inactiveDays: 30
+
+    property string menuChannelId: ""
+    property string menuNotifyMode: "all"
 
     header: PageHeader {
         id: header
@@ -71,10 +76,11 @@ Page {
             || (item.subtitle && item.subtitle.toLowerCase().indexOf(q) !== -1)
     }
 
-    function appendItem(it) {
+    function appendItem(it, sectionId) {
+        var hidden = Storage.isConversationHidden(it.id)
         conversationModel.append({
             rowType: "item",
-            sectionId: "",
+            sectionId: sectionId || "",
             convId: it.id,
             name: it.name,
             title: it.title,
@@ -85,6 +91,7 @@ Page {
             userId: it.userId,
             avatarUrl: it.avatarUrl || "",
             hasUnread: !!it.hasUnread,
+            isHidden: hidden,
             count: 0,
             expanded: false
         })
@@ -99,94 +106,73 @@ Page {
             name: "",
             title: showingAll
                   ? i18n.tr("See less")
-                  : i18n.tr("See more (%1)").arg(hiddenCount),
+                  : i18n.tr("See More (%1)").arg(hiddenCount),
             subtitle: showingAll
                       ? (isDms
-                         ? i18n.tr("Hide DMs inactive for 30+ days")
-                         : i18n.tr("Hide channels inactive for 30+ days"))
+                         ? i18n.tr("Hide inactive and hidden DMs")
+                         : i18n.tr("Hide inactive and hidden channels"))
                       : (isDms
-                         ? i18n.tr("DMs with no activity in 30 days")
-                         : i18n.tr("Channels with no activity in 30 days")),
+                         ? i18n.tr("Inactive or hidden DMs")
+                         : i18n.tr("Inactive or hidden channels")),
             isIm: isDms,
             isMpim: false,
             isPrivate: false,
             userId: "",
             avatarUrl: "",
             hasUnread: false,
+            isHidden: false,
             count: hiddenCount,
             expanded: showingAll
         })
     }
 
-    function applyFilter() {
+    function appendSection(items, sectionId, titleText, expanded, showAll) {
+        var filtered = []
         var q = searchField.text.trim().toLowerCase()
         var searching = q.length > 0
-        var groups = Models.splitConversationGroups(allItems || [])
-        var channels = []
-        var dms = []
         var i
-
-        for (i = 0; i < groups.channels.length; i++) {
-            if (matchesFilter(groups.channels[i], q))
-                channels.push(groups.channels[i])
-        }
-        for (i = 0; i < groups.dms.length; i++) {
-            if (matchesFilter(groups.dms[i], q))
-                dms.push(groups.dms[i])
+        for (i = 0; i < items.length; i++) {
+            if (matchesFilter(items[i], q))
+                filtered.push(items[i])
         }
 
-        var channelSplit = Models.splitChannelsByActivity(channels, inactiveDays)
-        var dmSplit = Models.splitChannelsByActivity(dms, inactiveDays)
-        var visibleChannels = (searching || showAllChannels) ? channels : channelSplit.active
-        var visibleDms = (searching || showAllDms) ? dms : dmSplit.active
+        var split = Models.splitPrimaryAndSecondary(filtered, inactiveDays, Storage.getHiddenMap())
+        var visible = (searching || showAll)
+                      ? filtered
+                      : split.primary
 
+        conversationModel.append({
+            rowType: "header",
+            sectionId: sectionId,
+            convId: "",
+            name: "",
+            title: titleText,
+            subtitle: "",
+            isIm: sectionId === "dms",
+            isMpim: false,
+            isPrivate: false,
+            userId: "",
+            avatarUrl: "",
+            hasUnread: false,
+            isHidden: false,
+            count: filtered.length,
+            expanded: expanded
+        })
+        if (!expanded)
+            return
+        for (i = 0; i < visible.length; i++)
+            appendItem(visible[i], sectionId)
+        if (!searching && split.secondary.length > 0)
+            appendSeeMore(sectionId, split.secondary.length, showAll)
+    }
+
+    function applyFilter() {
+        var groups = Models.splitConversationGroups(allItems || [])
         conversationModel.clear()
-
-        conversationModel.append({
-            rowType: "header",
-            sectionId: "channels",
-            convId: "",
-            name: "",
-            title: i18n.tr("Channels"),
-            subtitle: "",
-            isIm: false,
-            isMpim: false,
-            isPrivate: false,
-            userId: "",
-            avatarUrl: "",
-            hasUnread: false,
-            count: channels.length,
-            expanded: channelsExpanded
-        })
-        if (channelsExpanded) {
-            for (i = 0; i < visibleChannels.length; i++)
-                appendItem(visibleChannels[i])
-            if (!searching && channelSplit.inactive.length > 0)
-                appendSeeMore("channels", channelSplit.inactive.length, showAllChannels)
-        }
-
-        conversationModel.append({
-            rowType: "header",
-            sectionId: "dms",
-            convId: "",
-            name: "",
-            title: i18n.tr("Direct messages"),
-            subtitle: "",
-            isIm: true,
-            isMpim: false,
-            isPrivate: false,
-            userId: "",
-            avatarUrl: "",
-            hasUnread: false,
-            count: dms.length,
-            expanded: dmsExpanded
-        })
-        if (dmsExpanded) {
-            for (i = 0; i < visibleDms.length; i++)
-                appendItem(visibleDms[i])
-            if (!searching && dmSplit.inactive.length > 0)
-                appendSeeMore("dms", dmSplit.inactive.length, showAllDms)
-        }
+        appendSection(groups.channels || [], "channels", i18n.tr("Channels"),
+                      channelsExpanded, showAllChannels)
+        appendSection(groups.dms || [], "dms", i18n.tr("Direct messages"),
+                      dmsExpanded, showAllDms)
     }
 
     function toggleSection(sectionId) {
@@ -203,6 +189,44 @@ Page {
         else
             showAllChannels = !showAllChannels
         applyFilter()
+    }
+
+    function hideConversation(channelId) {
+        if (!channelId)
+            return
+        if (app && app.hideConversation)
+            app.hideConversation(channelId)
+        else
+            Storage.setConversationHidden(channelId, true)
+        applyFilter()
+    }
+
+    function unhideConversation(channelId) {
+        if (!channelId)
+            return
+        if (app && app.unhideConversation)
+            app.unhideConversation(channelId)
+        else
+            Storage.setConversationHidden(channelId, false)
+        applyFilter()
+    }
+
+    function openNotifyMenu(item, channelId) {
+        if (!channelId)
+            return
+        menuChannelId = channelId
+        menuNotifyMode = (app && app.getChannelNotifyMode)
+                         ? app.getChannelNotifyMode(channelId)
+                         : Storage.getEffectiveNotifyMode(channelId)
+        PopupUtils.open(notifyMenuComponent, item)
+    }
+
+    function applyNotifyPref(mode, muteUntil) {
+        var id = menuChannelId
+        if (!id || !app || !app.setChannelNotifyPref)
+            return
+        app.setChannelNotifyPref(id, mode, { muteUntil: muteUntil || 0 }, function() {})
+        menuNotifyMode = Storage.getEffectiveNotifyMode(id)
     }
 
     function openNewConversation() {
@@ -241,6 +265,172 @@ Page {
         if (app && app.pendingConversationsReload) {
             app.pendingConversationsReload = false
             reload()
+        }
+    }
+
+    Component {
+        id: notifyMenuComponent
+        Popover {
+            id: notifyPopover
+
+            // Don't anchor to Popover.parent — PopupUtils reparents content and
+            // that triggers "Cannot anchor to an item that isn't a parent or sibling".
+            Column {
+                id: menuColumn
+                width: units.gu(32)
+                spacing: 0
+
+                Item {
+                    width: parent.width
+                    height: units.gu(4)
+
+                    Label {
+                        anchors {
+                            fill: parent
+                            leftMargin: units.gu(2)
+                            rightMargin: units.gu(2)
+                        }
+                        verticalAlignment: Text.AlignVCenter
+                        text: i18n.tr("Notify you about…")
+                        fontSize: "small"
+                        color: theme.palette.normal.backgroundSecondaryText
+                    }
+                }
+
+                ListItem {
+                    height: units.gu(5)
+                    ListItemLayout {
+                        title.text: i18n.tr("All new posts")
+                        Icon {
+                            name: "notification"
+                            width: units.gu(2.2)
+                            height: units.gu(2.2)
+                            SlotsLayout.position: SlotsLayout.Leading
+                        }
+                        Icon {
+                            name: "ok"
+                            visible: conversationsPage.menuNotifyMode === "all"
+                            width: units.gu(2)
+                            height: units.gu(2)
+                            color: theme.palette.normal.activity
+                            SlotsLayout.position: SlotsLayout.Trailing
+                        }
+                    }
+                    onClicked: {
+                        conversationsPage.applyNotifyPref("all", 0)
+                        PopupUtils.close(notifyPopover)
+                    }
+                }
+
+                ListItem {
+                    height: units.gu(5)
+                    ListItemLayout {
+                        title.text: i18n.tr("Just mentions")
+                        Icon {
+                            name: "contact"
+                            width: units.gu(2.2)
+                            height: units.gu(2.2)
+                            SlotsLayout.position: SlotsLayout.Leading
+                        }
+                        Icon {
+                            name: "ok"
+                            visible: conversationsPage.menuNotifyMode === "mentions"
+                            width: units.gu(2)
+                            height: units.gu(2)
+                            color: theme.palette.normal.activity
+                            SlotsLayout.position: SlotsLayout.Trailing
+                        }
+                    }
+                    onClicked: {
+                        conversationsPage.applyNotifyPref("mentions", 0)
+                        PopupUtils.close(notifyPopover)
+                    }
+                }
+
+                ListItem {
+                    height: units.gu(5)
+                    ListItemLayout {
+                        title.text: i18n.tr("Mute")
+                        Icon {
+                            name: "notification-silent"
+                            width: units.gu(2.2)
+                            height: units.gu(2.2)
+                            SlotsLayout.position: SlotsLayout.Leading
+                        }
+                        Icon {
+                            name: "ok"
+                            visible: conversationsPage.menuNotifyMode === "mute"
+                            width: units.gu(2)
+                            height: units.gu(2)
+                            color: theme.palette.normal.activity
+                            SlotsLayout.position: SlotsLayout.Trailing
+                        }
+                    }
+                    onClicked: {
+                        conversationsPage.applyNotifyPref("mute", 0)
+                        PopupUtils.close(notifyPopover)
+                    }
+                }
+
+                ListItem {
+                    height: units.gu(1)
+                    divider.visible: true
+                }
+
+                Item {
+                    width: parent.width
+                    height: units.gu(4)
+
+                    Label {
+                        anchors {
+                            fill: parent
+                            leftMargin: units.gu(2)
+                            rightMargin: units.gu(2)
+                        }
+                        verticalAlignment: Text.AlignVCenter
+                        text: i18n.tr("Temporarily mute…")
+                        fontSize: "small"
+                        color: theme.palette.normal.backgroundSecondaryText
+                    }
+                }
+
+                ListItem {
+                    height: units.gu(5)
+                    ListItemLayout {
+                        title.text: i18n.tr("Until tomorrow")
+                        Icon {
+                            name: "history"
+                            width: units.gu(2.2)
+                            height: units.gu(2.2)
+                            SlotsLayout.position: SlotsLayout.Leading
+                        }
+                    }
+                    onClicked: {
+                        conversationsPage.applyNotifyPref(
+                                    "mute", Storage.muteUntilTomorrowMs())
+                        PopupUtils.close(notifyPopover)
+                    }
+                }
+
+                ListItem {
+                    height: units.gu(5)
+                    divider.visible: false
+                    ListItemLayout {
+                        title.text: i18n.tr("1 hour")
+                        Icon {
+                            name: "history"
+                            width: units.gu(2.2)
+                            height: units.gu(2.2)
+                            SlotsLayout.position: SlotsLayout.Leading
+                        }
+                    }
+                    onClicked: {
+                        conversationsPage.applyNotifyPref(
+                                    "mute", Storage.muteUntilOneHourMs())
+                        PopupUtils.close(notifyPopover)
+                    }
+                }
+            }
         }
     }
 
@@ -299,7 +489,7 @@ Page {
             delegate: Item {
                 width: listView.width
                 height: rowType === "header" ? units.gu(5)
-                      : (rowType === "seeMore" ? units.gu(6) : units.gu(7))
+                      : (rowType === "seeMore" ? units.gu(8) : units.gu(7))
 
                 SectionHeader {
                     anchors.fill: parent
@@ -311,7 +501,11 @@ Page {
                 }
 
                 ListItem {
-                    anchors.fill: parent
+                    anchors {
+                        fill: parent
+                        topMargin: units.gu(1)
+                        bottomMargin: units.gu(1)
+                    }
                     visible: rowType === "seeMore"
                     onClicked: conversationsPage.toggleSeeMore(model.sectionId)
 
@@ -324,6 +518,7 @@ Page {
                 }
 
                 ConversationDelegate {
+                    id: convDelegate
                     anchors.fill: parent
                     visible: rowType === "item"
                     titleText: model.title
@@ -332,6 +527,7 @@ Page {
                     isPrivate: model.isPrivate
                     avatarUrl: model.avatarUrl || ""
                     hasUnread: model.hasUnread
+                    isHidden: model.isHidden
                     onClicked: {
                         pageStack.push(Qt.resolvedUrl("ChatPage.qml"), {
                             app: conversationsPage.app,
@@ -339,6 +535,9 @@ Page {
                             channelTitle: model.title
                         })
                     }
+                    onHideRequested: conversationsPage.hideConversation(model.convId)
+                    onUnhideRequested: conversationsPage.unhideConversation(model.convId)
+                    onNotifyPrefsRequested: conversationsPage.openNotifyMenu(convDelegate, model.convId)
                 }
             }
         }
