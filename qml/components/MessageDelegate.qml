@@ -5,7 +5,7 @@ import Lomiri.Components.Popups 1.3
 Item {
     id: root
     width: parent ? parent.width : units.gu(40)
-    height: contentRow.height + units.gu(1)
+    height: cell.height + units.gu(1.5)
 
     property string ts: ""
     property string author: ""
@@ -20,6 +20,7 @@ Item {
     property bool showThreadActions: true
 
     property var imageList: []
+    property bool childPressed: false
 
     onImagesJsonChanged: parseImages()
     Component.onCompleted: parseImages()
@@ -36,8 +37,8 @@ Item {
         var n = "" + (theme && theme.name ? theme.name : "")
         return n.indexOf("SuruDark") !== -1
     }
-    readonly property color bubbleSelf: dark ? "#1B3D2F" : "#E8F5E9"
-    readonly property color bubbleSelfBorder: dark ? "#2D6A4F" : "#C8E6C9"
+    // Slack-like press highlight (no hover on touch)
+    readonly property color pressHighlight: dark ? "#28FFFFFF" : "#14000000"
     readonly property color authorColor: dark ? "#C9A0CE" : theme.palette.normal.activity
     readonly property color linkColor: dark ? "#7EB6FF" : theme.palette.normal.activity
     readonly property bool hasText: root.text && root.text.length > 0 && root.text !== "<br/>"
@@ -63,6 +64,7 @@ Item {
             .replace(/&quot;/g, "\"")
             .trim()
     }
+    readonly property bool highlighted: pressArea.pressed || root.childPressed
 
     signal imageOpenRequested(var imageInfo)
     signal imageDownloadRequested(var imageInfo)
@@ -71,7 +73,7 @@ Item {
     signal threadOpenRequested(string threadTs)
 
     function openCopyMenu(caller) {
-        PopupUtils.open(messageMenu, caller || bubble)
+        PopupUtils.open(messageMenu, caller || root)
     }
 
     function openThread() {
@@ -83,108 +85,123 @@ Item {
         root.threadOpenRequested(t)
     }
 
+    function beginChildPress() {
+        root.childPressed = true
+    }
+
+    function endChildPress() {
+        root.childPressed = false
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        color: root.highlighted ? root.pressHighlight : "transparent"
+    }
+
+    MouseArea {
+        id: pressArea
+        anchors.fill: parent
+        onPressAndHold: root.openCopyMenu(root)
+    }
+
     Row {
-        id: contentRow
+        id: cell
         anchors {
             left: parent.left
             right: parent.right
             top: parent.top
-            topMargin: units.gu(0.5)
-            leftMargin: root.isSelf ? units.gu(6) : units.gu(1.5)
-            rightMargin: root.isSelf ? units.gu(1.5) : units.gu(6)
+            leftMargin: units.gu(1.5)
+            rightMargin: units.gu(1.5)
+            topMargin: units.gu(0.75)
         }
         spacing: units.gu(1)
 
         UserAvatar {
             width: units.gu(4)
             height: units.gu(4)
-            visible: !root.isSelf
             sourceUrl: root.avatarUrl
             fallbackText: root.author
             fallbackColor: "#4A154B"
         }
 
         Column {
-            id: bubbleCol
-            width: contentRow.width - (root.isSelf ? 0 : (units.gu(4) + contentRow.spacing))
-            spacing: units.gu(0.25)
+            id: bodyCol
+            width: cell.width - units.gu(4) - cell.spacing
+            spacing: units.gu(0.35)
 
-            Label {
-                visible: !root.isSelf && root.author.length > 0
-                text: root.author
-                fontSize: "small"
-                font.bold: true
-                color: root.authorColor
+            Item {
+                width: parent.width
+                height: Math.max(authorLabel.height, timeLabelItem.height)
+
+                Label {
+                    id: authorLabel
+                    anchors {
+                        left: parent.left
+                        verticalCenter: parent.verticalCenter
+                        right: timeLabelItem.left
+                        rightMargin: units.gu(1)
+                    }
+                    text: root.author
+                    fontSize: "small"
+                    font.bold: true
+                    color: root.authorColor
+                    elide: Text.ElideRight
+                }
+
+                Label {
+                    id: timeLabelItem
+                    anchors {
+                        right: parent.right
+                        verticalCenter: parent.verticalCenter
+                    }
+                    text: root.timeLabel
+                    fontSize: "x-small"
+                    color: theme.palette.normal.backgroundTertiaryText
+                }
             }
 
-            Rectangle {
-                id: bubble
+            Text {
+                id: msgLabel
                 width: parent.width
-                height: innerCol.height + units.gu(1.5)
-                radius: units.gu(1)
-                color: root.isSelf ? root.bubbleSelf : theme.palette.normal.foreground
-                border.color: root.isSelf ? root.bubbleSelfBorder : theme.palette.normal.base
-                border.width: units.dp(1)
-                visible: root.hasText || root.hasImages
+                visible: root.hasText
+                text: root.hasText ? root.text : ""
+                textFormat: Text.RichText
+                wrapMode: Text.Wrap
+                color: theme.palette.normal.backgroundText
+                linkColor: root.linkColor
 
                 MouseArea {
                     anchors.fill: parent
-                    z: -1
-                    enabled: root.hasImages && !root.hasText
-                    onPressAndHold: root.openCopyMenu(bubble)
+                    enabled: root.hasText
+                    onPressed: root.beginChildPress()
+                    onReleased: root.endChildPress()
+                    onCanceled: root.endChildPress()
+                    onClicked: {
+                        var link = ""
+                        try {
+                            link = msgLabel.linkAt(mouse.x, mouse.y) || ""
+                        } catch (e) {
+                            link = ""
+                        }
+                        if (link.length > 0)
+                            Qt.openUrlExternally(link)
+                    }
+                    onPressAndHold: root.openCopyMenu(root)
                 }
+            }
 
-                Column {
-                    id: innerCol
-                    anchors {
-                        left: parent.left
-                        right: parent.right
-                        top: parent.top
-                        margins: units.gu(1)
-                    }
-                    spacing: units.gu(1)
-
-                    Text {
-                        id: msgLabel
-                        width: parent.width
-                        visible: root.hasText
-                        text: root.hasText ? root.text : ""
-                        textFormat: Text.RichText
-                        wrapMode: Text.Wrap
-                        color: theme.palette.normal.foregroundText
-                        linkColor: root.linkColor
-
-                        MouseArea {
-                            anchors.fill: parent
-                            enabled: root.hasText
-                            onClicked: {
-                                var link = ""
-                                try {
-                                    link = msgLabel.linkAt(mouse.x, mouse.y) || ""
-                                } catch (e) {
-                                    link = ""
-                                }
-                                if (link.length > 0)
-                                    Qt.openUrlExternally(link)
-                            }
-                            onPressAndHold: root.openCopyMenu(bubble)
-                        }
-                    }
-
-                    Repeater {
-                        model: root.imageList
-                        delegate: SlackImage {
-                            width: innerCol.width
-                            imageUrl: modelData.url || ""
-                            thumbUrl: modelData.thumb || modelData.url || ""
-                            mimetype: modelData.mimetype || "image/jpeg"
-                            needsAuth: modelData.needsAuth !== false
-                            title: modelData.name || ""
-                            onOpenRequested: root.imageOpenRequested(imageInfo())
-                            onDownloadRequested: root.imageDownloadRequested(imageInfo())
-                            onCopyRequested: root.imageCopyRequested(imageInfo())
-                        }
-                    }
+            Repeater {
+                model: root.imageList
+                delegate: SlackImage {
+                    width: bodyCol.width
+                    imageUrl: modelData.url || ""
+                    thumbUrl: modelData.thumb || modelData.url || ""
+                    mimetype: modelData.mimetype || "image/jpeg"
+                    needsAuth: modelData.needsAuth !== false
+                    title: modelData.name || ""
+                    onOpenRequested: root.imageOpenRequested(imageInfo())
+                    onDownloadRequested: root.imageDownloadRequested(imageInfo())
+                    onCopyRequested: root.imageCopyRequested(imageInfo())
                 }
             }
 
@@ -193,6 +210,12 @@ Item {
                 visible: root.showThreadActions && root.replyCount > 0
                 height: visible ? units.gu(3) : 0
                 width: parent.width
+                onPressedChanged: {
+                    if (pressed)
+                        root.beginChildPress()
+                    else
+                        root.endChildPress()
+                }
                 onClicked: root.openThread()
 
                 Label {
@@ -205,13 +228,6 @@ Item {
                     font.bold: true
                     color: theme.palette.normal.activity
                 }
-            }
-
-            Label {
-                anchors.right: parent.right
-                text: root.timeLabel
-                fontSize: "x-small"
-                color: theme.palette.normal.backgroundTertiaryText
             }
         }
     }
