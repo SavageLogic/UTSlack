@@ -8,6 +8,26 @@ Page {
     property bool busy: false
     property string errorText: ""
 
+    // Hidden helper: Qt.labs.platform Clipboard is unavailable on UT;
+    // TextEdit.paste() still reads the system clipboard.
+    TextEdit {
+        id: pasteHelper
+        visible: false
+        width: 0
+        height: 0
+        text: ""
+    }
+
+    function pasteTokenFromClipboard() {
+        pasteHelper.text = ""
+        pasteHelper.paste()
+        var pasted = ("" + pasteHelper.text).trim()
+        if (pasted.length > 0)
+            tokenField.text = pasted
+        else
+            loginPage.errorText = i18n.tr("Clipboard is empty — copy the token in the browser first, then tap Paste.")
+    }
+
     header: PageHeader {
         id: header
         title: i18n.tr("Connect to Slack")
@@ -17,6 +37,7 @@ Page {
         id: flick
         anchors {
             fill: parent
+            topMargin: header.height
         }
         contentHeight: contentCol.height + units.gu(4)
         clip: true
@@ -69,12 +90,23 @@ Page {
                 font.bold: true
             }
 
-            TextArea {
+            TextField {
                 id: tokenField
                 width: parent.width
-                height: units.gu(8)
                 placeholderText: i18n.tr("xoxp-…")
                 enabled: !loginPage.busy
+                // Tokens are secrets; avoid OSK autocorrect / prediction
+                inputMethodHints: Qt.ImhNoPredictiveText | Qt.ImhNoAutoUppercase | Qt.ImhSensitiveData
+            }
+
+            Button {
+                width: parent.width
+                text: i18n.tr("Paste from clipboard")
+                enabled: !loginPage.busy
+                onClicked: {
+                    loginPage.errorText = ""
+                    loginPage.pasteTokenFromClipboard()
+                }
             }
 
             Label {
@@ -82,7 +114,7 @@ Page {
                 wrapMode: Text.Wrap
                 fontSize: "small"
                 color: theme.palette.normal.backgroundSecondaryText
-                text: i18n.tr("Slack app → OAuth & Permissions → Install to Workspace → copy User OAuth Token (not Bot User OAuth Token). Scopes must be under User Token Scopes.")
+                text: i18n.tr("Slack app → OAuth & Permissions → Install to Workspace → copy User OAuth Token (not Bot User OAuth Token). Scopes must be under User Token Scopes. If long-press Paste is greyed out, use the button above.")
             }
 
             Label {
@@ -122,7 +154,7 @@ Page {
                 wrapMode: Text.Wrap
                 fontSize: "small"
                 color: theme.palette.normal.backgroundTertiaryText
-                text: i18n.tr("Required user scopes: channels/groups/im/mpim read+history, users:read, chat:write")
+                text: i18n.tr("Required user scopes: channels/groups/im/mpim read+history, users:read, chat:write, search:read, files:read/write")
             }
         }
     }

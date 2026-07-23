@@ -47,12 +47,16 @@ Page {
                 isMember: !!it.isMember,
                 hasConversation: !!it.hasConversation,
                 conversationId: it.conversationId || "",
-                isIm: it.kind === "user"
+                isIm: it.kind === "user",
+                isPrivate: !!it.isPrivate,
+                avatarUrl: it.avatarUrl || ""
             })
         }
     }
 
     function reload() {
+        if (!app)
+            return
         errorText = ""
         loading = true
         app.loadPickerData(function(ok, data, message) {
@@ -86,7 +90,7 @@ Page {
     }
 
     function selectItem(item) {
-        if (opening)
+        if (opening || !app)
             return
         errorText = ""
         opening = true
@@ -119,13 +123,18 @@ Page {
     }
 
     Component.onCompleted: reload()
+    onAppChanged: {
+        if (app)
+            reload()
+    }
 
     Column {
         id: topBar
         anchors {
-            top: header.bottom
             left: parent.left
             right: parent.right
+            top: parent.top
+            topMargin: header.height
         }
         spacing: units.gu(1)
 
@@ -225,17 +234,19 @@ Page {
 
             delegate: ConversationDelegate {
                 width: listView.width
-                titleText: title
-                subtitleText: subtitle
-                isIm: isIm
+                titleText: model.title
+                subtitleText: model.subtitle
+                isIm: model.isIm
+                isPrivate: model.isPrivate
+                avatarUrl: model.avatarUrl || ""
                 onClicked: {
                     newConversationPage.selectItem({
-                        itemId: itemId,
-                        title: title,
-                        kind: kind,
-                        isMember: isMember,
-                        hasConversation: hasConversation,
-                        conversationId: conversationId
+                        itemId: model.itemId,
+                        title: model.title,
+                        kind: model.kind,
+                        isMember: model.isMember,
+                        hasConversation: model.hasConversation,
+                        conversationId: model.conversationId
                     })
                 }
             }

@@ -40,13 +40,237 @@ function userDisplayName(userId) {
     var u = _userCache[userId]
     if (!u)
         return userId
-    return u.profile && u.profile.display_name
-        ? u.profile.display_name
-        : (u.real_name || u.name || userId)
+    var dn = u.profile && u.profile.display_name ? ("" + u.profile.display_name).trim() : ""
+    if (dn)
+        return dn
+    return u.real_name || u.name || userId
 }
 
 function getUser(userId) {
     return _userCache[userId] || null
+}
+
+function userAvatarUrl(userId, size) {
+    if (!userId)
+        return ""
+    var u = _userCache[userId]
+    if (!u)
+        return ""
+    var p = u.profile || {}
+    var want = size || 72
+    var order = [want, 72, 48, 192, 32, 24, 512]
+    for (var i = 0; i < order.length; i++) {
+        var key = "image_" + order[i]
+        if (p[key])
+            return p[key]
+    }
+    return p.image_original || ""
+}
+
+function _userMentionAliases(user) {
+    if (!user || !user.id || user.deleted)
+        return []
+    var seen = {}
+    var out = []
+    function add(s) {
+        s = ("" + (s || "")).trim()
+        if (!s)
+            return
+        var key = s.toLowerCase()
+        if (seen[key])
+            return
+        seen[key] = true
+        out.push(s)
+    }
+    if (user.profile) {
+        add(user.profile.display_name)
+        add(user.profile.display_name_normalized)
+        add(user.profile.real_name)
+        add(user.profile.real_name_normalized)
+    }
+    add(user.real_name)
+    add(user.name)
+    return out
+}
+
+function _escapeRegExp(s) {
+    return ("" + s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+// Convert typed @name / @here into Slack mrkdwn mention tokens
+function encodeTextMentions(text) {
+    if (!text)
+        return ""
+    var t = "" + text
+
+    t = t.replace(/(^|[\s\u00A0])@(here|channel|everyone)\b/gi, function(_, pre, kind) {
+        return pre + "<!" + ("" + kind).toLowerCase() + ">"
+    })
+
+    var aliases = []
+    for (var id in _userCache) {
+        if (!_userCache.hasOwnProperty(id))
+            continue
+        var names = _userMentionAliases(_userCache[id])
+        for (var i = 0; i < names.length; i++)
+            aliases.push({ id: id, name: names[i] })
+    }
+    aliases.sort(function(a, b) {
+        return b.name.length - a.name.length
+    })
+
+    for (var j = 0; j < aliases.length; j++) {
+        var a = aliases[j]
+        var re = new RegExp(
+            "(^|[\\s\\u00A0])@" + _escapeRegExp(a.name) + "(?=$|[\\s\\u00A0.,!?;:])",
+            "gi"
+        )
+        t = t.replace(re, function(_, pre) {
+            return pre + "<@" + a.id + ">"
+        })
+    }
+    return t
+}
+
+function searchUsersForMention(query, limit) {
+    var q = ("" + (query || "")).toLowerCase().replace(/^@/, "")
+    var max = limit || 8
+    var results = []
+
+    var specials = ["here", "channel", "everyone"]
+    for (var s = 0; s < specials.length; s++) {
+        if (q.length === 0 || specials[s].indexOf(q) === 0) {
+            results.push({
+                id: "!" + specials[s],
+                label: specials[s],
+                name: specials[s],
+                score: -1
+            })
+        }
+    }
+
+    for (var id in _userCache) {
+        if (!_userCache.hasOwnProperty(id))
+            continue
+        var u = _userCache[id]
+        if (!u || u.deleted)
+            continue
+        if (u.id === "USLACKBOT")
+            continue
+
+        var label = userDisplayName(id)
+        var name = (u.name || "").toLowerCase()
+        var real = (u.real_name || "").toLowerCase()
+        var disp = (label || "").toLowerCase()
+        var hay = disp + " " + name + " " + real
+
+        if (q.length > 0 && hay.indexOf(q) === -1)
+            continue
+
+        var score = 3
+        if (q.length === 0)
+            score = 1
+        else if (disp.indexOf(q) === 0 || name.indexOf(q) === 0)
+            score = 0
+        else if (disp.indexOf(q) !== -1 || name.indexOf(q) !== -1)
+            score = 1
+
+        results.push({
+            id: id,
+            label: label,
+            name: u.name || "",
+            score: score
+        })
+    }
+
+    results.sort(function(a, b) {
+        if (a.score !== b.score)
+            return a.score - b.score
+        var al = (a.label || "").toLowerCase()
+        var bl = (b.label || "").toLowerCase()
+        if (al < bl)
+            return -1
+        if (al > bl)
+            return 1
+        return 0
+    })
+
+    return results.slice(0, max)
+}
+
+function collectUserIdsFromMessages(messages) {
+    var ids = []
+    var seen = {}
+    function add(id) {
+        if (!id || seen[id])
+            return
+        seen[id] = true
+        ids.push(id)
+    }
+    function walkElements(elements) {
+        if (!elements)
+            return
+        for (var e = 0; e < elements.length; e++) {
+            var el = elements[e]
+            if (!el)
+                continue
+            if (el.type === "user" && el.user_id)
+                add(el.user_id)
+            if (el.elements)
+                walkElements(el.elements)
+        }
+    }
+    if (!messages)
+        return ids
+    var re = /<@([A-Za-z0-9]+)/g
+    for (var i = 0; i < messages.length; i++) {
+        var m = messages[i]
+        if (!m)
+            continue
+        if (m.user)
+            add(m.user)
+        var text = m.text || ""
+        var match
+        re.lastIndex = 0
+        while ((match = re.exec(text)) !== null)
+            add(match[1])
+        var blocks = m.blocks || []
+        for (var b = 0; b < blocks.length; b++) {
+            if (!blocks[b])
+                continue
+            walkElements(blocks[b].elements)
+        }
+    }
+    return ids
+}
+
+function ensureUsersCached(userIds, callback) {
+    if (!callback)
+        callback = function() {}
+    var missing = []
+    var ids = userIds || []
+    for (var i = 0; i < ids.length; i++) {
+        if (ids[i] && !_userCache[ids[i]])
+            missing.push(ids[i])
+    }
+    if (missing.length === 0) {
+        callback({ ok: true })
+        return
+    }
+
+    var left = missing.length
+    var anyOk = false
+    for (var j = 0; j < missing.length; j++) {
+        (function(uid) {
+            usersInfo(uid, function(res) {
+                if (res && res.ok)
+                    anyOk = true
+                left--
+                if (left <= 0)
+                    callback({ ok: anyOk || missing.length === 0 })
+            })
+        })(missing[j])
+    }
 }
 
 function _encodeArgs(args) {
@@ -278,7 +502,23 @@ function conversationsHistory(channelId, options, callback) {
         args.latest = options.latest
     if (options && options.cursor)
         args.cursor = options.cursor
+    if (options && options.inclusive)
+        args.inclusive = true
     api("conversations.history", args, callback)
+}
+
+// Full-channel search. Requires user scope search:read.
+// Prefer query built as: 'in:CHANNEL_ID terms'
+function searchMessages(query, options, callback) {
+    var args = {
+        query: query || "",
+        count: (options && options.count) ? options.count : 20,
+        sort: (options && options.sort) ? options.sort : "timestamp",
+        sort_dir: (options && options.sort_dir) ? options.sort_dir : "desc"
+    }
+    if (options && options.page)
+        args.page = options.page
+    api("search.messages", args, callback)
 }
 
 function chatPostMessage(channelId, text, callback) {

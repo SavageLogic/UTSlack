@@ -320,13 +320,72 @@ MainView {
                 callback(false, [], (res && (res.message || res.error)) || i18n.tr("API error"))
                 return
             }
-            var items = Models.normalizeMessages(res.messages || [])
-            callback(true, items, "")
+            var raw = res.messages || []
+            var ids = Slack.collectUserIdsFromMessages(raw)
+            Slack.ensureUsersCached(ids, function() {
+                var items = Models.normalizeMessages(raw)
+                callback(true, items, "")
+            })
         })
     }
 
+    function searchInChannel(channelId, query, callback) {
+        var q = ("" + (query || "")).trim()
+        if (!channelId || !q) {
+            callback(true, [], "")
+            return
+        }
+        var fullQuery = "in:" + channelId + " " + q
+        Slack.searchMessages(fullQuery, { count: 25, sort: "timestamp", sort_dir: "desc" }, function(res) {
+            if (!res || !res.ok) {
+                var err = (res && res.error) || "api_error"
+                var msg = (res && res.message) || ""
+                if (err === "missing_scope" || err === "not_allowed_token_type")
+                    msg = i18n.tr("Search needs the search:read user scope. Add it in your Slack app OAuth settings, reinstall the app, and paste a new token.")
+                else if (!msg)
+                    msg = i18n.tr("Search failed")
+                callback(false, [], msg)
+                return
+            }
+            var matches = (res.messages && res.messages.matches) ? res.messages.matches : []
+            var ids = Slack.collectUserIdsFromMessages(matches)
+            Slack.ensureUsersCached(ids, function() {
+                callback(true, Models.normalizeSearchResults(matches), "")
+            })
+        })
+    }
+
+    // Load messages around a timestamp so we can jump to a search hit
+    function loadMessagesAround(channelId, ts, callback) {
+        if (!channelId || !ts) {
+            callback(false, [], "", "")
+            return
+        }
+        // History is newest-first from Slack; request a window ending at ts (inclusive)
+        Slack.conversationsHistory(channelId, {
+            latest: ts,
+            inclusive: true,
+            limit: 40
+        }, function(res) {
+            if (!res || !res.ok) {
+                callback(false, [], (res && (res.message || res.error)) || i18n.tr("API error"), ts)
+                return
+            }
+            var raw = res.messages || []
+            var ids = Slack.collectUserIdsFromMessages(raw)
+            Slack.ensureUsersCached(ids, function() {
+                callback(true, Models.normalizeMessages(raw), "", ts)
+            })
+        })
+    }
+
+    function searchMentions(query) {
+        return Slack.searchUsersForMention(query, 8)
+    }
+
     function sendMessage(channelId, text, callback) {
-        Slack.chatPostMessage(channelId, text, function(res) {
+        var encoded = Slack.encodeTextMentions(text || "")
+        Slack.chatPostMessage(channelId, encoded, function(res) {
             if (!res || !res.ok) {
                 callback(false, (res && (res.message || res.error)) || i18n.tr("Send failed"))
                 return
@@ -336,7 +395,10 @@ MainView {
     }
 
     function uploadFile(channelId, fileUrl, options, callback) {
-        Slack.uploadLocalFile(channelId, fileUrl, options || {}, function(res) {
+        var opts = options || {}
+        if (opts.initialComment)
+            opts.initialComment = Slack.encodeTextMentions(opts.initialComment)
+        Slack.uploadLocalFile(channelId, fileUrl, opts, function(res) {
             if (!res || !res.ok) {
                 callback(false, (res && (res.message || res.error)) || i18n.tr("Upload failed"))
                 return

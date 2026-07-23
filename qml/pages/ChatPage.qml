@@ -16,20 +16,156 @@ Page {
     property string newestTs: ""
     property bool activePolling: true
 
+    property bool searchMode: false
+    property bool searching: false
+    property bool searchAttempted: false
+    property string searchError: ""
+    property string pendingScrollTs: ""
+
     header: PageHeader {
         id: header
-        title: channelTitle || i18n.tr("Chat")
+        title: searchMode
+               ? i18n.tr("Search")
+               : (channelTitle || i18n.tr("Chat"))
+        leadingActionBar.actions: [
+            Action {
+                iconName: "back"
+                text: i18n.tr("Back")
+                onTriggered: {
+                    if (chatPage.searchMode)
+                        chatPage.exitSearch()
+                    else
+                        pageStack.pop()
+                }
+            }
+        ]
         trailingActionBar.actions: [
+            Action {
+                iconName: "search"
+                text: i18n.tr("Search")
+                visible: !searchMode
+                onTriggered: chatPage.enterSearch()
+            },
             Action {
                 iconName: "reload"
                 text: i18n.tr("Refresh")
+                visible: !searchMode
                 onTriggered: chatPage.loadHistory(true)
             }
         ]
+
+        extension: Item {
+            height: searchMode ? units.gu(6) : 0
+            width: header.width > 0 ? header.width : units.gu(40)
+            visible: searchMode
+            clip: true
+
+            TextField {
+                id: searchField
+                anchors {
+                    fill: parent
+                    leftMargin: units.gu(1)
+                    rightMargin: units.gu(1)
+                    topMargin: units.gu(0.5)
+                    bottomMargin: units.gu(1)
+                }
+                placeholderText: i18n.tr("Search in this conversation…")
+                hasClearButton: true
+                onTextChanged: searchDebounce.restart()
+            }
+
+            Timer {
+                id: searchDebounce
+                interval: 350
+                repeat: false
+                onTriggered: chatPage.runSearch(searchField.text)
+            }
+        }
     }
 
     ListModel {
         id: messageModel
+    }
+
+    ListModel {
+        id: searchModel
+    }
+
+    function enterSearch() {
+        searchMode = true
+        activePolling = false
+        searchError = ""
+        searchAttempted = false
+        searchModel.clear()
+        errorText = ""
+    }
+
+    function exitSearch() {
+        searchMode = false
+        searching = false
+        searchAttempted = false
+        searchError = ""
+        searchModel.clear()
+        activePolling = true
+        errorText = ""
+        loadHistory(true)
+    }
+
+    function runSearch(query) {
+        var q = ("" + (query || "")).trim()
+        searchError = ""
+        if (!q) {
+            searchModel.clear()
+            searching = false
+            searchAttempted = false
+            return
+        }
+        if (!app || !channelId)
+            return
+        searching = true
+        searchAttempted = true
+        app.searchInChannel(channelId, q, function(ok, items, message) {
+            searching = false
+            searchModel.clear()
+            if (!ok) {
+                searchError = message || i18n.tr("Search failed")
+                return
+            }
+            var list = items || []
+            for (var i = 0; i < list.length; i++) {
+                var m = list[i]
+                searchModel.append({
+                    ts: m.ts || "",
+                    author: m.author || "",
+                    avatarUrl: m.avatarUrl || "",
+                    plainText: m.plainText || "",
+                    timeLabel: m.timeLabel || "",
+                    dayLabel: m.dayLabel || ""
+                })
+            }
+        })
+    }
+
+    function openSearchHit(ts) {
+        if (!ts || !app)
+            return
+        searching = true
+        searchError = ""
+        app.loadMessagesAround(channelId, ts, function(ok, items, message, focusTs) {
+            searching = false
+            if (!ok) {
+                searchError = message || i18n.tr("Couldn't open message")
+                return
+            }
+            searchMode = false
+            searchModel.clear()
+            activePolling = true
+            pendingScrollTs = focusTs || ts
+            appendMessages(items || [], true)
+            if (newestTs && app.markChannelSeen)
+                app.markChannelSeen(channelId, newestTs)
+            scrollToTsTimer.start()
+        })
     }
 
     function appendMessages(items, replace) {
@@ -54,6 +190,7 @@ Page {
                 ts: m.ts,
                 userId: m.userId,
                 author: m.author,
+                avatarUrl: m.avatarUrl || "",
                 text: m.text,
                 plainText: m.plainText || "",
                 imagesJson: m.imagesJson || "[]",
@@ -63,12 +200,26 @@ Page {
             if (!newestTs || m.ts > newestTs)
                 newestTs = m.ts
         }
-        if (replace || items.length > 0)
+        if (!pendingScrollTs && (replace || items.length > 0))
             scrollToEndTimer.start()
     }
 
+    function scrollToPendingTs() {
+        var target = pendingScrollTs
+        pendingScrollTs = ""
+        if (!target)
+            return
+        for (var i = 0; i < messageModel.count; i++) {
+            if (messageModel.get(i).ts === target) {
+                listView.positionViewAtIndex(i, ListView.Center)
+                return
+            }
+        }
+        listView.positionViewAtEnd()
+    }
+
     function loadHistory(fullReload) {
-        if (!channelId)
+        if (!channelId || searchMode)
             return
         errorText = ""
         loading = true
@@ -85,7 +236,7 @@ Page {
     }
 
     function pollNew() {
-        if (!channelId || !activePolling || sending)
+        if (!channelId || !activePolling || sending || searchMode)
             return
         var opts = {}
         if (newestTs)
@@ -93,7 +244,6 @@ Page {
         app.loadMessages(channelId, opts, function(ok, items) {
             if (!ok || !items || items.length === 0)
                 return
-            // When oldest is set, Slack includes the boundary message; skip known ones
             var fresh = []
             for (var i = 0; i < items.length; i++) {
                 if (items[i].ts !== newestTs)
@@ -214,7 +364,7 @@ Page {
         id: pollTimer
         interval: 8000
         repeat: true
-        running: chatPage.activePolling && chatPage.channelId.length > 0
+        running: chatPage.activePolling && !chatPage.searchMode && chatPage.channelId.length > 0
         onTriggered: chatPage.pollNew()
     }
 
@@ -225,21 +375,29 @@ Page {
         onTriggered: listView.positionViewAtEnd()
     }
 
+    Timer {
+        id: scrollToTsTimer
+        interval: 80
+        repeat: false
+        onTriggered: chatPage.scrollToPendingTs()
+    }
+
     ListView {
         id: listView
         anchors {
-            top: parent.top
-            left: parent.left
-            right: parent.right
-            bottom: composer.top
+            fill: parent
+            topMargin: header.height
+            bottomMargin: searchMode ? 0 : composer.height
         }
         clip: true
         model: messageModel
         spacing: 0
+        visible: !searchMode
 
         delegate: MessageDelegate {
             width: listView.width
             author: model.author
+            avatarUrl: model.avatarUrl || ""
             text: model.text
             timeLabel: model.timeLabel
             isSelf: model.isSelf
@@ -260,10 +418,66 @@ Page {
         }
     }
 
+    ListView {
+        id: searchList
+        anchors {
+            fill: parent
+            topMargin: header.height
+        }
+        clip: true
+        model: searchModel
+        visible: searchMode
+        delegate: ListItem {
+            height: searchLayout.height + (divider.visible ? divider.height : 0)
+            onClicked: chatPage.openSearchHit(model.ts)
+
+            ListItemLayout {
+                id: searchLayout
+                title.text: model.author
+                subtitle.text: model.plainText
+                subtitle.maximumLineCount: 2
+                summary.text: (model.dayLabel ? model.dayLabel + " · " : "") + model.timeLabel
+
+                UserAvatar {
+                    SlotsLayout.position: SlotsLayout.Leading
+                    width: units.gu(4)
+                    height: units.gu(4)
+                    sourceUrl: model.avatarUrl || ""
+                    fallbackText: model.author
+                }
+
+                ProgressionSlot {}
+            }
+        }
+    }
+
     ActivityIndicator {
-        anchors.centerIn: listView
-        running: loading && messageModel.count === 0
+        anchors.centerIn: parent
+        running: (loading && messageModel.count === 0 && !searchMode)
+                 || (searchMode && searching)
         visible: running
+    }
+
+    Label {
+        anchors.centerIn: parent
+        width: parent.width - units.gu(4)
+        horizontalAlignment: Text.AlignHCenter
+        wrapMode: Text.Wrap
+        visible: searchMode && !searching && searchModel.count === 0 && searchError.length === 0
+        color: theme.palette.normal.backgroundSecondaryText
+        text: searchAttempted
+              ? i18n.tr("No messages found.")
+              : i18n.tr("Type to search messages in this conversation.")
+    }
+
+    Label {
+        anchors.centerIn: parent
+        width: parent.width - units.gu(4)
+        horizontalAlignment: Text.AlignHCenter
+        wrapMode: Text.Wrap
+        visible: searchMode && !searching && searchError.length > 0
+        color: theme.palette.normal.negative
+        text: searchError
     }
 
     Label {
@@ -273,7 +487,7 @@ Page {
             bottom: composer.top
             margins: units.gu(1)
         }
-        visible: errorText.length > 0
+        visible: !searchMode && errorText.length > 0
         wrapMode: Text.Wrap
         color: theme.palette.normal.negative
         fontSize: "small"
@@ -291,7 +505,11 @@ Page {
             right: parent.right
             bottom: parent.bottom
         }
+        visible: !searchMode
         sending: chatPage.sending
+        mentionProvider: function(query) {
+            return chatPage.app ? chatPage.app.searchMentions(query) : []
+        }
         onSendRequested: chatPage.sendMessage(message)
         onAttachRequested: chatPage.openAttachMenu()
     }

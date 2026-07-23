@@ -14,16 +14,23 @@ Rectangle {
     property string pendingFileUrl: ""
     property string pendingFileName: ""
     property url pendingPreview: ""
+    property var mentionProvider: null
 
     readonly property bool hasPendingFile: pendingFileUrl.length > 0
     readonly property bool canSend: !sending && (input.text.trim().length > 0 || hasPendingFile)
+    readonly property bool mentionOpen: mentionModel.count > 0
 
     signal sendRequested(string message)
     signal attachRequested()
 
+    ListModel {
+        id: mentionModel
+    }
+
     function clear() {
         input.text = ""
         clearPendingFile()
+        mentionModel.clear()
     }
 
     function clearPendingFile() {
@@ -46,6 +53,42 @@ Rectangle {
         input.forceActiveFocus()
     }
 
+    function activeMentionQuery(text) {
+        var s = "" + (text || "")
+        var match = s.match(/(^|[\s\u00A0])@([^\s@]*)$/)
+        if (!match)
+            return null
+        return match[2]
+    }
+
+    function refreshMentions() {
+        mentionModel.clear()
+        if (!root.mentionProvider || typeof root.mentionProvider !== "function")
+            return
+        var query = activeMentionQuery(input.text)
+        if (query === null)
+            return
+        // Require at least "@" — show suggestions once user typed @
+        var hits = root.mentionProvider(query) || []
+        for (var i = 0; i < hits.length; i++) {
+            mentionModel.append({
+                userId: hits[i].id || "",
+                label: hits[i].label || hits[i].name || "",
+                userName: hits[i].name || ""
+            })
+        }
+    }
+
+    function applyMention(label) {
+        var s = "" + input.text
+        var replaced = s.replace(/(^|[\s\u00A0])@([^\s@]*)$/, function(_, pre) {
+            return pre + "@" + label + " "
+        })
+        input.text = replaced
+        mentionModel.clear()
+        input.forceActiveFocus()
+    }
+
     Column {
         id: col
         anchors {
@@ -55,6 +98,36 @@ Rectangle {
             margins: units.gu(1)
         }
         spacing: units.gu(1)
+
+        Rectangle {
+            id: mentionBox
+            width: parent.width
+            height: mentionOpen ? Math.min(mentionList.contentHeight, units.gu(24)) : 0
+            visible: mentionOpen
+            radius: units.gu(0.5)
+            color: theme.palette.normal.foreground
+            border.color: theme.palette.normal.base
+            border.width: units.dp(1)
+            clip: true
+
+            ListView {
+                id: mentionList
+                anchors.fill: parent
+                model: mentionModel
+                clip: true
+                delegate: ListItem {
+                    height: units.gu(5)
+                    divider.visible: true
+                    onClicked: root.applyMention(model.label)
+
+                    ListItemLayout {
+                        title.text: "@" + model.label
+                        subtitle.text: model.userName
+                        subtitle.visible: model.userName.length > 0 && model.userName !== model.label
+                    }
+                }
+            }
+        }
 
         Row {
             id: pendingRow
@@ -119,9 +192,14 @@ Rectangle {
                 Layout.fillWidth: true
                 placeholderText: root.hasPendingFile
                                  ? i18n.tr("Add a caption…")
-                                 : i18n.tr("Message…")
+                                 : i18n.tr("Message… @ to mention")
                 enabled: !root.sending
+                onTextChanged: root.refreshMentions()
                 onAccepted: {
+                    if (root.mentionOpen && mentionModel.count > 0) {
+                        root.applyMention(mentionModel.get(0).label)
+                        return
+                    }
                     if (root.canSend)
                         sendButton.clicked()
                 }
@@ -135,6 +213,7 @@ Rectangle {
                 onClicked: {
                     if (!root.canSend)
                         return
+                    mentionModel.clear()
                     root.sendRequested(input.text.trim())
                 }
             }

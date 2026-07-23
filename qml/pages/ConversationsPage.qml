@@ -40,12 +40,9 @@ Page {
         ]
 
         extension: Item {
-            anchors {
-                left: parent.left
-                right: parent.right
-                bottom: parent.bottom
-            }
+            // PageHeader reparents extension — don't anchor to header internals
             height: units.gu(6)
+            width: header.width > 0 ? header.width : units.gu(40)
 
             TextField {
                 id: searchField
@@ -86,6 +83,7 @@ Page {
             isMpim: it.isMpim,
             isPrivate: it.isPrivate,
             userId: it.userId,
+            avatarUrl: it.avatarUrl || "",
             count: 0,
             expanded: false
         })
@@ -112,6 +110,7 @@ Page {
             isMpim: false,
             isPrivate: false,
             userId: "",
+            avatarUrl: "",
             count: hiddenCount,
             expanded: showingAll
         })
@@ -152,6 +151,7 @@ Page {
             isMpim: false,
             isPrivate: false,
             userId: "",
+            avatarUrl: "",
             count: channels.length,
             expanded: channelsExpanded
         })
@@ -173,6 +173,7 @@ Page {
             isMpim: false,
             isPrivate: false,
             userId: "",
+            avatarUrl: "",
             count: dms.length,
             expanded: dmsExpanded
         })
@@ -207,6 +208,8 @@ Page {
     }
 
     function reload() {
+        if (!app)
+            return
         errorText = ""
         loading = true
         app.loadConversations(function(ok, items, message) {
@@ -234,10 +237,8 @@ Page {
     Item {
         id: body
         anchors {
-            top: header.bottom
-            left: parent.left
-            right: parent.right
-            bottom: parent.bottom
+            fill: parent
+            topMargin: header.height
         }
 
         ActivityIndicator {
@@ -302,7 +303,7 @@ Page {
                 ListItem {
                     anchors.fill: parent
                     visible: rowType === "seeMore"
-                    onClicked: conversationsPage.toggleSeeMore(sectionId)
+                    onClicked: conversationsPage.toggleSeeMore(model.sectionId)
 
                     ListItemLayout {
                         // Use model.* — bare "title"/"subtitle" resolve to ListItemLayout's Labels
@@ -315,14 +316,16 @@ Page {
                 ConversationDelegate {
                     anchors.fill: parent
                     visible: rowType === "item"
-                    titleText: title
-                    subtitleText: subtitle
-                    isIm: isIm
+                    titleText: model.title
+                    subtitleText: model.subtitle
+                    isIm: model.isIm
+                    isPrivate: model.isPrivate
+                    avatarUrl: model.avatarUrl || ""
                     onClicked: {
                         pageStack.push(Qt.resolvedUrl("ChatPage.qml"), {
                             app: conversationsPage.app,
-                            channelId: convId,
-                            channelTitle: title
+                            channelId: model.convId,
+                            channelTitle: model.title
                         })
                     }
                 }
@@ -333,7 +336,7 @@ Page {
     BottomEdge {
         id: newChatBottomEdge
         height: parent.height
-        preloadContent: true
+        preloadContent: false
         hint {
             text: i18n.tr("New conversation")
             iconName: "add"

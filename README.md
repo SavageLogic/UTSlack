@@ -8,6 +8,7 @@ Native Slack client for [Ubuntu Touch](https://ubuntu-touch.io/), built with QML
 - Collapsible **Channels** and **Direct messages** groups
 - Start a new DM or join/open a channel via **+**
 - Read channel/DM history (including inline images and file attachments)
+- Search within a conversation
 - Send messages and upload photos/files
 - Poll for new messages while a chat is open (~8s)
 - Push notifications for new messages while the app is running (UBports Push)
@@ -40,6 +41,7 @@ Native Slack client for [Ubuntu Touch](https://ubuntu-touch.io/), built with QML
    | `channels:write` | Join public channels |
    | `files:read` | Display images and file previews |
    | `files:write` | Upload photos and files |
+   | `search:read` | Search messages within a conversation |
 
 3. Click **Install to Workspace** and allow access
 4. Copy the **User OAuth Token** (`xoxp-…`) — not the bot token
