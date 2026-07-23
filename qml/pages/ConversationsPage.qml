@@ -273,161 +273,271 @@ Page {
         Popover {
             id: notifyPopover
 
-            // Don't anchor to Popover.parent — PopupUtils reparents content and
-            // that triggers "Cannot anchor to an item that isn't a parent or sibling".
+            // Plain rows — ListItem dividers stack badly inside Popover.
             Column {
                 id: menuColumn
-                width: units.gu(32)
+                width: units.gu(30)
                 spacing: 0
+
+                function closeWith(mode, muteUntil) {
+                    conversationsPage.applyNotifyPref(mode, muteUntil || 0)
+                    PopupUtils.close(notifyPopover)
+                }
 
                 Item {
                     width: parent.width
-                    height: units.gu(4)
-
+                    height: units.gu(4.5)
                     Label {
                         anchors {
-                            fill: parent
+                            left: parent.left
+                            right: parent.right
+                            verticalCenter: parent.verticalCenter
                             leftMargin: units.gu(2)
                             rightMargin: units.gu(2)
                         }
-                        verticalAlignment: Text.AlignVCenter
                         text: i18n.tr("Notify you about…")
                         fontSize: "small"
                         color: theme.palette.normal.backgroundSecondaryText
                     }
                 }
 
-                ListItem {
-                    height: units.gu(5)
-                    ListItemLayout {
-                        title.text: i18n.tr("All new posts")
-                        Icon {
-                            name: "notification"
-                            width: units.gu(2.2)
-                            height: units.gu(2.2)
-                            SlotsLayout.position: SlotsLayout.Leading
+                Item {
+                    width: parent.width
+                    height: units.gu(1.5)
+                    Rectangle {
+                        anchors {
+                            left: parent.left
+                            right: parent.right
+                            verticalCenter: parent.verticalCenter
+                            leftMargin: units.gu(1)
+                            rightMargin: units.gu(1)
                         }
-                        Icon {
-                            name: "ok"
-                            visible: conversationsPage.menuNotifyMode === "all"
-                            width: units.gu(2)
-                            height: units.gu(2)
-                            color: theme.palette.normal.activity
-                            SlotsLayout.position: SlotsLayout.Trailing
-                        }
-                    }
-                    onClicked: {
-                        conversationsPage.applyNotifyPref("all", 0)
-                        PopupUtils.close(notifyPopover)
+                        height: units.dp(1)
+                        color: theme.palette.normal.base
+                        opacity: 0.55
                     }
                 }
 
-                ListItem {
-                    height: units.gu(5)
-                    ListItemLayout {
-                        title.text: i18n.tr("Just mentions")
-                        Icon {
-                            name: "contact"
-                            width: units.gu(2.2)
-                            height: units.gu(2.2)
-                            SlotsLayout.position: SlotsLayout.Leading
+                AbstractButton {
+                    width: parent.width
+                    height: units.gu(5.5)
+                    onClicked: menuColumn.closeWith("all", 0)
+                    Icon {
+                        id: allIcon
+                        anchors {
+                            left: parent.left
+                            verticalCenter: parent.verticalCenter
+                            leftMargin: units.gu(2)
                         }
-                        Icon {
-                            name: "ok"
-                            visible: conversationsPage.menuNotifyMode === "mentions"
-                            width: units.gu(2)
-                            height: units.gu(2)
-                            color: theme.palette.normal.activity
-                            SlotsLayout.position: SlotsLayout.Trailing
-                        }
+                        name: "notification"
+                        width: units.gu(2.2)
+                        height: units.gu(2.2)
+                        color: theme.palette.normal.backgroundText
                     }
-                    onClicked: {
-                        conversationsPage.applyNotifyPref("mentions", 0)
-                        PopupUtils.close(notifyPopover)
-                    }
-                }
-
-                ListItem {
-                    height: units.gu(5)
-                    ListItemLayout {
-                        title.text: i18n.tr("Mute")
-                        Icon {
-                            name: "notification-silent"
-                            width: units.gu(2.2)
-                            height: units.gu(2.2)
-                            SlotsLayout.position: SlotsLayout.Leading
+                    Label {
+                        anchors {
+                            left: allIcon.right
+                            right: allCheck.left
+                            verticalCenter: parent.verticalCenter
+                            leftMargin: units.gu(1.5)
+                            rightMargin: units.gu(1)
                         }
-                        Icon {
-                            name: "ok"
-                            visible: conversationsPage.menuNotifyMode === "mute"
-                            width: units.gu(2)
-                            height: units.gu(2)
-                            color: theme.palette.normal.activity
-                            SlotsLayout.position: SlotsLayout.Trailing
-                        }
+                        text: i18n.tr("All new posts")
+                        elide: Text.ElideRight
+                        color: theme.palette.normal.backgroundText
                     }
-                    onClicked: {
-                        conversationsPage.applyNotifyPref("mute", 0)
-                        PopupUtils.close(notifyPopover)
+                    Icon {
+                        id: allCheck
+                        anchors {
+                            right: parent.right
+                            verticalCenter: parent.verticalCenter
+                            rightMargin: units.gu(2)
+                        }
+                        name: "ok"
+                        width: units.gu(2)
+                        height: units.gu(2)
+                        visible: conversationsPage.menuNotifyMode === "all"
+                        color: theme.palette.normal.activity
                     }
                 }
 
-                ListItem {
-                    height: units.gu(1)
-                    divider.visible: true
+                AbstractButton {
+                    width: parent.width
+                    height: units.gu(5.5)
+                    onClicked: menuColumn.closeWith("mentions", 0)
+                    Icon {
+                        id: mentionIcon
+                        anchors {
+                            left: parent.left
+                            verticalCenter: parent.verticalCenter
+                            leftMargin: units.gu(2)
+                        }
+                        name: "contact"
+                        width: units.gu(2.2)
+                        height: units.gu(2.2)
+                        color: theme.palette.normal.backgroundText
+                    }
+                    Label {
+                        anchors {
+                            left: mentionIcon.right
+                            right: mentionCheck.left
+                            verticalCenter: parent.verticalCenter
+                            leftMargin: units.gu(1.5)
+                            rightMargin: units.gu(1)
+                        }
+                        text: i18n.tr("Just mentions")
+                        elide: Text.ElideRight
+                        color: theme.palette.normal.backgroundText
+                    }
+                    Icon {
+                        id: mentionCheck
+                        anchors {
+                            right: parent.right
+                            verticalCenter: parent.verticalCenter
+                            rightMargin: units.gu(2)
+                        }
+                        name: "ok"
+                        width: units.gu(2)
+                        height: units.gu(2)
+                        visible: conversationsPage.menuNotifyMode === "mentions"
+                        color: theme.palette.normal.activity
+                    }
+                }
+
+                AbstractButton {
+                    width: parent.width
+                    height: units.gu(5.5)
+                    onClicked: menuColumn.closeWith("mute", 0)
+                    Icon {
+                        id: muteIcon
+                        anchors {
+                            left: parent.left
+                            verticalCenter: parent.verticalCenter
+                            leftMargin: units.gu(2)
+                        }
+                        name: "notification-silent"
+                        width: units.gu(2.2)
+                        height: units.gu(2.2)
+                        color: theme.palette.normal.backgroundText
+                    }
+                    Label {
+                        anchors {
+                            left: muteIcon.right
+                            right: muteCheck.left
+                            verticalCenter: parent.verticalCenter
+                            leftMargin: units.gu(1.5)
+                            rightMargin: units.gu(1)
+                        }
+                        text: i18n.tr("Mute")
+                        elide: Text.ElideRight
+                        color: theme.palette.normal.backgroundText
+                    }
+                    Icon {
+                        id: muteCheck
+                        anchors {
+                            right: parent.right
+                            verticalCenter: parent.verticalCenter
+                            rightMargin: units.gu(2)
+                        }
+                        name: "ok"
+                        width: units.gu(2)
+                        height: units.gu(2)
+                        visible: conversationsPage.menuNotifyMode === "mute"
+                        color: theme.palette.normal.activity
+                    }
                 }
 
                 Item {
                     width: parent.width
-                    height: units.gu(4)
+                    height: units.gu(1.5)
+                    Rectangle {
+                        anchors {
+                            left: parent.left
+                            right: parent.right
+                            verticalCenter: parent.verticalCenter
+                            leftMargin: units.gu(1)
+                            rightMargin: units.gu(1)
+                        }
+                        height: units.dp(1)
+                        color: theme.palette.normal.base
+                        opacity: 0.55
+                    }
+                }
 
+                Item {
+                    width: parent.width
+                    height: units.gu(4.5)
                     Label {
                         anchors {
-                            fill: parent
+                            left: parent.left
+                            right: parent.right
+                            verticalCenter: parent.verticalCenter
                             leftMargin: units.gu(2)
                             rightMargin: units.gu(2)
                         }
-                        verticalAlignment: Text.AlignVCenter
                         text: i18n.tr("Temporarily mute…")
                         fontSize: "small"
                         color: theme.palette.normal.backgroundSecondaryText
                     }
                 }
 
-                ListItem {
-                    height: units.gu(5)
-                    ListItemLayout {
-                        title.text: i18n.tr("Until tomorrow")
-                        Icon {
-                            name: "history"
-                            width: units.gu(2.2)
-                            height: units.gu(2.2)
-                            SlotsLayout.position: SlotsLayout.Leading
+                AbstractButton {
+                    width: parent.width
+                    height: units.gu(5.5)
+                    onClicked: menuColumn.closeWith("mute", Storage.muteUntilTomorrowMs())
+                    Icon {
+                        id: tomorrowIcon
+                        anchors {
+                            left: parent.left
+                            verticalCenter: parent.verticalCenter
+                            leftMargin: units.gu(2)
                         }
+                        name: "history"
+                        width: units.gu(2.2)
+                        height: units.gu(2.2)
+                        color: theme.palette.normal.backgroundText
                     }
-                    onClicked: {
-                        conversationsPage.applyNotifyPref(
-                                    "mute", Storage.muteUntilTomorrowMs())
-                        PopupUtils.close(notifyPopover)
+                    Label {
+                        anchors {
+                            left: tomorrowIcon.right
+                            right: parent.right
+                            verticalCenter: parent.verticalCenter
+                            leftMargin: units.gu(1.5)
+                            rightMargin: units.gu(2)
+                        }
+                        text: i18n.tr("Until tomorrow")
+                        elide: Text.ElideRight
+                        color: theme.palette.normal.backgroundText
                     }
                 }
 
-                ListItem {
-                    height: units.gu(5)
-                    divider.visible: false
-                    ListItemLayout {
-                        title.text: i18n.tr("1 hour")
-                        Icon {
-                            name: "history"
-                            width: units.gu(2.2)
-                            height: units.gu(2.2)
-                            SlotsLayout.position: SlotsLayout.Leading
+                AbstractButton {
+                    width: parent.width
+                    height: units.gu(5.5)
+                    onClicked: menuColumn.closeWith("mute", Storage.muteUntilOneHourMs())
+                    Icon {
+                        id: hourIcon
+                        anchors {
+                            left: parent.left
+                            verticalCenter: parent.verticalCenter
+                            leftMargin: units.gu(2)
                         }
+                        name: "history"
+                        width: units.gu(2.2)
+                        height: units.gu(2.2)
+                        color: theme.palette.normal.backgroundText
                     }
-                    onClicked: {
-                        conversationsPage.applyNotifyPref(
-                                    "mute", Storage.muteUntilOneHourMs())
-                        PopupUtils.close(notifyPopover)
+                    Label {
+                        anchors {
+                            left: hourIcon.right
+                            right: parent.right
+                            verticalCenter: parent.verticalCenter
+                            leftMargin: units.gu(1.5)
+                            rightMargin: units.gu(2)
+                        }
+                        text: i18n.tr("1 hour")
+                        elide: Text.ElideRight
+                        color: theme.palette.normal.backgroundText
                     }
                 }
             }
