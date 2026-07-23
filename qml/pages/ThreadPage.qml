@@ -55,6 +55,7 @@ Page {
             messageModel.clear()
             newestTs = ""
         }
+        var added = 0
         for (var i = 0; i < items.length; i++) {
             var m = items[i]
             if (!replace) {
@@ -81,10 +82,12 @@ Page {
                 replyCount: m.replyCount || 0,
                 threadTs: m.threadTs || ""
             })
+            added++
             if (!newestTs || m.ts > newestTs)
                 newestTs = m.ts
         }
-        if (replace || items.length > 0)
+        // Only auto-scroll on full reload or when new messages were actually added
+        if (replace || added > 0)
             threadPage.scrollToLatest(replace)
     }
 
@@ -113,7 +116,6 @@ Page {
             appendMessages(items || [], true)
             if (newestTs && app.markChannelSeen)
                 app.markChannelSeen(channelId, newestTs)
-            threadPage.scrollToLatest(true)
         })
     }
 
@@ -128,7 +130,7 @@ Page {
                 return
             var fresh = []
             for (var i = 0; i < items.length; i++) {
-                if (items[i].ts !== newestTs)
+                if (items[i].ts && items[i].ts > newestTs)
                     fresh.push(items[i])
             }
             if (fresh.length > 0) {

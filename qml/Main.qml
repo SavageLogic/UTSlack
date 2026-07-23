@@ -450,7 +450,7 @@ MainView {
             var raw = res.messages || []
             var ids = Slack.collectUserIdsFromMessages(raw)
             Slack.ensureUsersCached(ids, function() {
-                callback(true, Models.normalizeMessages(raw), "")
+                callback(true, Models.normalizeMessages(raw, { chronological: true }), "")
             })
         })
     }

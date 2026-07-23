@@ -726,12 +726,17 @@ function extractImages(message) {
     return images
 }
 
-function normalizeMessages(messages) {
+function normalizeMessages(messages, options) {
     var items = []
     if (!messages)
         return items
-    // Slack returns newest first; reverse for chronological ListView
-    for (var i = messages.length - 1; i >= 0; i--) {
+    options = options || {}
+    // conversations.history is newest-first; conversations.replies is oldest-first.
+    var alreadyChronological = !!options.chronological
+    var start = alreadyChronological ? 0 : messages.length - 1
+    var end = alreadyChronological ? messages.length : -1
+    var step = alreadyChronological ? 1 : -1
+    for (var i = start; i !== end; i += step) {
         var m = messages[i]
         if (!m || m.subtype === "channel_join" || m.subtype === "channel_leave")
             continue
