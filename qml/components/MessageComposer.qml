@@ -53,6 +53,12 @@ Rectangle {
         input.forceActiveFocus()
     }
 
+    function hideKeyboard() {
+        mentionModel.clear()
+        input.focus = false
+        Qt.inputMethod.hide()
+    }
+
     function activeMentionQuery(text) {
         var s = "" + (text || "")
         var match = s.match(/(^|[\s\u00A0])@([^\s@]*)$/)

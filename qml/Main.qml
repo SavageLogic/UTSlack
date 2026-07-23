@@ -17,6 +17,8 @@ MainView {
     objectName: "mainView"
     applicationName: "utslack.savagelogic"
     automaticOrientation: true
+    // Keep bottom-anchored UI (message composer, etc.) above the OSK
+    anchorToKeyboard: true
 
     width: units.gu(45)
     height: units.gu(75)

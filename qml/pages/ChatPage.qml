@@ -201,7 +201,19 @@ Page {
                 newestTs = m.ts
         }
         if (!pendingScrollTs && (replace || items.length > 0))
+            chatPage.scrollToLatest(replace)
+    }
+
+    function scrollToLatest(forceReliable) {
+        if (searchMode || messageModel.count === 0)
+            return
+        // End index is more reliable than positionViewAtEnd before delegates settle
+        listView.positionViewAtIndex(messageModel.count - 1, ListView.End)
+        if (forceReliable) {
+            scrollToEndTimer.interval = 50
             scrollToEndTimer.start()
+            scrollToEndRetry.restart()
+        }
     }
 
     function scrollToPendingTs() {
@@ -215,7 +227,7 @@ Page {
                 return
             }
         }
-        listView.positionViewAtEnd()
+        chatPage.scrollToLatest(true)
     }
 
     function loadHistory(fullReload) {
@@ -232,6 +244,7 @@ Page {
             appendMessages(items || [], true)
             if (newestTs && app && app.markChannelSeen)
                 app.markChannelSeen(channelId, newestTs)
+            chatPage.scrollToLatest(true)
         })
     }
 
@@ -347,6 +360,14 @@ Page {
         )
     }
 
+    function copyMessageText(value) {
+        dismissKeyboard()
+        if (!value || !app || !app.copyTextToClipboard)
+            return
+        if (!app.copyTextToClipboard(value))
+            errorText = i18n.tr("Couldn't copy message")
+    }
+
     function copyImage(info) {
         if (!info || !app || !app.copyImageToClipboard)
             return
@@ -372,7 +393,21 @@ Page {
         id: scrollToEndTimer
         interval: 50
         repeat: false
-        onTriggered: listView.positionViewAtEnd()
+        onTriggered: {
+            if (messageModel.count > 0)
+                listView.positionViewAtIndex(messageModel.count - 1, ListView.End)
+        }
+    }
+
+    // Second pass after avatars/images affect delegate heights
+    Timer {
+        id: scrollToEndRetry
+        interval: 250
+        repeat: false
+        onTriggered: {
+            if (messageModel.count > 0 && !chatPage.searchMode)
+                listView.positionViewAtIndex(messageModel.count - 1, ListView.End)
+        }
     }
 
     Timer {
@@ -380,6 +415,23 @@ Page {
         interval: 80
         repeat: false
         onTriggered: chatPage.scrollToPendingTs()
+    }
+
+    function dismissKeyboard() {
+        if (composer && composer.visible)
+            composer.hideKeyboard()
+        // Also drop search-field focus if that keyboard is up
+        if (searchMode)
+            chatPage.forceActiveFocus()
+        Qt.inputMethod.hide()
+    }
+
+    Connections {
+        target: Qt.inputMethod
+        onVisibleChanged: {
+            if (Qt.inputMethod.visible && !chatPage.searchMode)
+                chatPage.scrollToLatest(false)
+        }
     }
 
     ListView {
@@ -393,18 +445,21 @@ Page {
         model: messageModel
         spacing: 0
         visible: !searchMode
+        onMovementStarted: chatPage.dismissKeyboard()
 
         delegate: MessageDelegate {
             width: listView.width
             author: model.author
             avatarUrl: model.avatarUrl || ""
             text: model.text
+            plainText: model.plainText || ""
             timeLabel: model.timeLabel
             isSelf: model.isSelf
             imagesJson: model.imagesJson || "[]"
             onImageOpenRequested: chatPage.openImageViewer(imageInfo)
             onImageDownloadRequested: chatPage.downloadImage(imageInfo)
             onImageCopyRequested: chatPage.copyImage(imageInfo)
+            onCopyTextRequested: chatPage.copyMessageText(value)
         }
 
         Label {
@@ -418,6 +473,18 @@ Page {
         }
     }
 
+    // Tap chat area (not the composer) to dismiss the OSK without eating scroll/clicks
+    MouseArea {
+        anchors.fill: listView
+        enabled: listView.visible && Qt.inputMethod.visible
+        z: 1
+        propagateComposedEvents: true
+        onPressed: {
+            chatPage.dismissKeyboard()
+            mouse.accepted = false
+        }
+    }
+
     ListView {
         id: searchList
         anchors {
@@ -427,6 +494,7 @@ Page {
         clip: true
         model: searchModel
         visible: searchMode
+        onMovementStarted: chatPage.dismissKeyboard()
         delegate: ListItem {
             height: searchLayout.height + (divider.visible ? divider.height : 0)
             onClicked: chatPage.openSearchHit(model.ts)
@@ -448,6 +516,17 @@ Page {
 
                 ProgressionSlot {}
             }
+        }
+    }
+
+    MouseArea {
+        anchors.fill: searchList
+        enabled: searchList.visible && Qt.inputMethod.visible
+        z: 1
+        propagateComposedEvents: true
+        onPressed: {
+            chatPage.dismissKeyboard()
+            mouse.accepted = false
         }
     }
 

@@ -1,5 +1,6 @@
 import QtQuick 2.7
 import Lomiri.Components 1.3
+import Lomiri.Components.Popups 1.3
 
 Item {
     id: root
@@ -9,6 +10,7 @@ Item {
     property string author: ""
     property string avatarUrl: ""
     property string text: ""
+    property string plainText: ""
     property string timeLabel: ""
     property bool isSelf: false
     property string imagesJson: "[]"
@@ -36,10 +38,30 @@ Item {
     readonly property color linkColor: dark ? "#7EB6FF" : theme.palette.normal.activity
     readonly property bool hasText: root.text && root.text.length > 0 && root.text !== "<br/>"
     readonly property bool hasImages: imageList && imageList.length > 0
+    readonly property string copyPayload: {
+        var p = ("" + root.plainText).trim()
+        if (p.length > 0)
+            return p
+        return ("" + root.text)
+            .replace(/<br\s*\/?>/gi, "\n")
+            .replace(/<[^>]+>/g, "")
+            .replace(/&amp;/g, "&")
+            .replace(/&lt;/g, "<")
+            .replace(/&gt;/g, ">")
+            .replace(/&quot;/g, "\"")
+            .trim()
+    }
 
     signal imageOpenRequested(var imageInfo)
     signal imageDownloadRequested(var imageInfo)
     signal imageCopyRequested(var imageInfo)
+    signal copyTextRequested(string value)
+
+    function openCopyMenu(caller) {
+        if (root.copyPayload.length === 0)
+            return
+        PopupUtils.open(messageMenu, caller || bubble)
+    }
 
     Row {
         id: contentRow
@@ -76,6 +98,7 @@ Item {
             }
 
             Rectangle {
+                id: bubble
                 width: parent.width
                 height: innerCol.height + units.gu(1.5)
                 radius: units.gu(1)
@@ -95,6 +118,7 @@ Item {
                     spacing: units.gu(1)
 
                     Text {
+                        id: msgLabel
                         width: parent.width
                         visible: root.hasText
                         text: root.hasText ? root.text : ""
@@ -102,9 +126,21 @@ Item {
                         wrapMode: Text.Wrap
                         color: theme.palette.normal.foregroundText
                         linkColor: root.linkColor
-                        onLinkActivated: {
-                            if (link && link.length > 0)
-                                Qt.openUrlExternally(link)
+
+                        MouseArea {
+                            anchors.fill: parent
+                            enabled: root.hasText
+                            onClicked: {
+                                var link = ""
+                                try {
+                                    link = msgLabel.linkAt(mouse.x, mouse.y) || ""
+                                } catch (e) {
+                                    link = ""
+                                }
+                                if (link.length > 0)
+                                    Qt.openUrlExternally(link)
+                            }
+                            onPressAndHold: root.openCopyMenu(bubble)
                         }
                     }
 
@@ -130,6 +166,20 @@ Item {
                 text: root.timeLabel
                 fontSize: "x-small"
                 color: theme.palette.normal.backgroundTertiaryText
+            }
+        }
+    }
+
+    Component {
+        id: messageMenu
+        ActionSelectionPopover {
+            actions: ActionList {
+                Action {
+                    iconName: "edit-copy"
+                    text: i18n.tr("Copy message")
+                    enabled: root.copyPayload.length > 0
+                    onTriggered: root.copyTextRequested(root.copyPayload)
+                }
             }
         }
     }
