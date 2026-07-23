@@ -37,9 +37,10 @@ Native Slack client for [Ubuntu Touch](https://ubuntu-touch.io/), built with QML
    | `mpim:history` | Read group DMs |
    | `users:read` | Resolve display names |
    | `chat:write` | Send messages as you |
-   | `im:write` | Open new direct messages |
-   | `mpim:write` | Open group DMs (optional) |
-   | `channels:write` | Join public channels |
+   | `channels:write` | Join public channels; mark public channels read |
+   | `groups:write` | Mark private channels read |
+   | `im:write` | Open DMs; mark DMs read |
+   | `mpim:write` | Open group DMs; mark group DMs read |
    | `files:read` | Display images and file previews |
    | `files:write` | Upload photos and files |
    | `search:read` | Search messages within a conversation |

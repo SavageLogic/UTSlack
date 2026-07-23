@@ -87,8 +87,11 @@ function markChannelSeen(channelId, ts) {
 // Last time the user opened a conversation (for unread bold in the list).
 // Kept separate from lastSeenMap so push polling can advance "seen for notify"
 // without clearing unread until the chat is actually opened.
+// V3: unread = activity newer than last open/seed (not "never opened = unread").
 function getLastOpenedMap() {
-    var raw = get("lastOpenedMap", "{}")
+    var raw = get("lastOpenedMapV3", "")
+    if (!raw || raw.length === 0)
+        return {}
     try {
         return JSON.parse(raw || "{}") || {}
     } catch (e) {
@@ -98,7 +101,7 @@ function getLastOpenedMap() {
 
 function setLastOpenedMap(map) {
     try {
-        set("lastOpenedMap", JSON.stringify(map || {}))
+        set("lastOpenedMapV3", JSON.stringify(map || {}))
     } catch (e) {
     }
 }
@@ -107,12 +110,13 @@ function markChannelOpened(channelId, ts) {
     if (!channelId)
         return
     var map = getLastOpenedMap()
-    var prev = map[channelId] || "0"
-    var next = ts ? ("" + ts) : prev
-    if (!next)
-        return
-    if (parseFloat(next) >= parseFloat(prev || "0"))
-        map[channelId] = next
+    var prev = parseFloat(map[channelId]) || 0
+    var next = ts ? parseFloat(ts) : 0
+    if (!next || isNaN(next))
+        next = Date.now() / 1000
+    // Always advance at least to "now" so channel.updated stamps can't leave us stuck unread
+    var stamp = Math.max(prev, next, Date.now() / 1000)
+    map[channelId] = "" + stamp
     setLastOpenedMap(map)
 }
 

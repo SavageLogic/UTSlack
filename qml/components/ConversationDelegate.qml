@@ -54,12 +54,21 @@ ListItem {
     ListItemLayout {
         id: layout
         title.text: root.titleText
-        title.font.bold: root.hasUnread
+        title.color: root.hasUnread
+                     ? theme.palette.normal.backgroundText
+                     : theme.palette.normal.backgroundSecondaryText
         title.opacity: root.isHidden ? 0.55 : 1.0
         subtitle.text: root.isHidden
                        ? i18n.tr("Hidden")
                        : root.subtitleText
         subtitle.opacity: root.isHidden ? 0.7 : 1.0
+
+        // ListItemLayout often resets title.font when text changes — keep bold applied.
+        Binding {
+            target: layout.title
+            property: "font.bold"
+            value: root.hasUnread
+        }
 
         Item {
             SlotsLayout.position: SlotsLayout.Leading
@@ -121,8 +130,30 @@ ListItem {
             color: theme.palette.normal.backgroundSecondaryText
         }
 
-        ProgressionSlot {
+        Item {
+            SlotsLayout.position: SlotsLayout.Trailing
+            width: units.gu(3)
+            height: units.gu(3)
             visible: !root.isHidden
+
+            Rectangle {
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.left: parent.left
+                width: units.gu(1)
+                height: units.gu(1)
+                radius: width / 2
+                visible: root.hasUnread
+                color: theme.palette.normal.activity
+            }
+
+            Icon {
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.right: parent.right
+                width: units.gu(2)
+                height: units.gu(2)
+                name: "go-next"
+                color: theme.palette.normal.backgroundSecondaryText
+            }
         }
     }
 }

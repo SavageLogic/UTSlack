@@ -56,6 +56,11 @@ function normalizeConversations(channels) {
             activity = Number(c.updated)
         else if (c.created)
             activity = Number(c.created)
+        var slackUnread = Number(c.unread_count_display)
+        if (isNaN(slackUnread))
+            slackUnread = Number(c.unread_count)
+        if (isNaN(slackUnread))
+            slackUnread = 0
         items.push({
             id: c.id,
             name: c.name || "",
@@ -69,6 +74,7 @@ function normalizeConversations(channels) {
             userId: c.user || "",
             avatarUrl: (c.is_im && c.user) ? Slack.userAvatarUrl(c.user, 72) : "",
             lastActivityTs: activity,
+            slackUnreadCount: slackUnread,
             hasUnread: false,
             raw: c
         })
@@ -152,9 +158,7 @@ function splitConversationGroups(items) {
     return { channels: channels, dms: dms }
 }
 
-// Mark hasUnread from last activity vs lastOpenedMap.
-// Missing map entries are seeded to current activity (nothing bold until new traffic).
-// Returns true if the map gained new keys and should be persisted.
+// Prefer Slack unread flags when present; otherwise keep existing hasUnread.
 function applyUnreadState(items, lastOpenedMap) {
     var map = lastOpenedMap || {}
     var mapChanged = false
@@ -164,6 +168,14 @@ function applyUnreadState(items, lastOpenedMap) {
         var it = items[i]
         if (!it || !it.id)
             continue
+        // Slack enrich already set hasUnread — don't overwrite with local seed logic
+        if (it.slackUnreadChecked) {
+            continue
+        }
+        if ((Number(it.slackUnreadCount) || 0) > 0) {
+            it.hasUnread = true
+            continue
+        }
         var latest = Number(it.lastActivityTs) || 0
         var latestStr = latest > 0 ? ("" + latest) : "0"
         if (!map.hasOwnProperty(it.id)) {

@@ -32,6 +32,7 @@ function clearCache() {
     _userCache = {}
     _authInfo = null
     _imageCache = {}
+    _markedUpTo = {}
 }
 
 function userDisplayName(userId) {
@@ -574,6 +575,31 @@ function _basenameFromUrl(url) {
     return name
 }
 
+function _byteLength(bytes) {
+    if (!bytes)
+        return 0
+    if (typeof bytes.byteLength === "number")
+        return bytes.byteLength
+    return bytes.length || 0
+}
+
+function _toUint8Array(bytes) {
+    if (!bytes)
+        return null
+    if (typeof Uint8Array !== "undefined") {
+        if (bytes instanceof Uint8Array)
+            return bytes
+        if (typeof ArrayBuffer !== "undefined" && bytes instanceof ArrayBuffer)
+            return new Uint8Array(bytes)
+        var len = bytes.length || 0
+        var out = new Uint8Array(len)
+        for (var i = 0; i < len; i++)
+            out[i] = bytes[i] & 0xff
+        return out
+    }
+    return null
+}
+
 function _readLocalFileBytes(fileUrl, callback) {
     if (!callback)
         callback = function() {}
@@ -585,42 +611,40 @@ function _readLocalFileBytes(fileUrl, callback) {
     xhr.onreadystatechange = function() {
         if (xhr.readyState !== XMLHttpRequest.DONE)
             return
+        // file:// often reports status 0 on success in QML
         if (xhr.status !== 0 && (xhr.status < 200 || xhr.status >= 300)) {
             callback(null, "read_failed_" + xhr.status)
             return
         }
-        var bytes = null
-        try {
-            if (typeof Uint8Array !== "undefined" && xhr.response && typeof xhr.response !== "string")
-                bytes = new Uint8Array(xhr.response)
-        } catch (e) {}
-        if (!bytes) {
-            try {
-                var text = xhr.responseText || ""
-                bytes = []
-                for (var i = 0; i < text.length; i++)
-                    bytes.push(text.charCodeAt(i) & 0xff)
-            } catch (e2) {
-                callback(null, "read_failed")
-                return
-            }
-        }
-        if (!bytes || bytes.length === 0) {
+        var bytes = _responseToBytes(xhr)
+        if (!bytes || _byteLength(bytes) === 0) {
             callback(null, "empty_file")
             return
         }
-        callback(bytes, "")
+        callback(_toUint8Array(bytes) || bytes, "")
     }
     xhr.open("GET", fileUrl)
     try {
         xhr.responseType = "arraybuffer"
     } catch (e3) {}
+    // Preserve high bytes if the engine falls back to responseText
+    try {
+        xhr.overrideMimeType("text/plain; charset=x-user-defined")
+    } catch (e4) {}
     xhr.send()
 }
 
-function _postUploadBytes(uploadUrl, bytes, callback) {
+// QML xhr.send(string) UTF-8-encodes the body and corrupts binary images.
+// Always send an ArrayBuffer / Uint8Array so Slack gets raw file bytes.
+function _postUploadBytes(uploadUrl, bytes, filename, mime, callback) {
     if (!callback)
         callback = function() {}
+    var u8 = _toUint8Array(bytes)
+    if (!u8 || u8.length === 0) {
+        callback(false, "empty_file")
+        return
+    }
+
     var xhr = new XMLHttpRequest()
     xhr.onreadystatechange = function() {
         if (xhr.readyState !== XMLHttpRequest.DONE)
@@ -628,27 +652,69 @@ function _postUploadBytes(uploadUrl, bytes, callback) {
         if (xhr.status >= 200 && xhr.status < 300)
             callback(true, "")
         else {
-            console.log("[upload] POST to upload_url failed", xhr.status)
+            console.log("[upload] POST to upload_url failed", xhr.status, (xhr.responseText || "").substring(0, 200))
             callback(false, "upload_http_" + xhr.status)
         }
     }
     xhr.open("POST", uploadUrl)
-    // QML XHR is most reliable with a binary Latin-1 string body
+    var contentType = mime || "application/octet-stream"
     try {
-        var s = ""
-        var len = bytes.length
-        // Build in chunks to avoid argument limits on some engines
-        var chunk = 0x8000
-        for (var i = 0; i < len; i += chunk) {
-            var end = Math.min(i + chunk, len)
-            var piece = []
-            for (var j = i; j < end; j++)
-                piece.push(String.fromCharCode(bytes[j] & 0xff))
-            s += piece.join("")
+        xhr.setRequestHeader("Content-Type", contentType)
+    } catch (eHdr) {}
+
+    try {
+        // Prefer raw ArrayBuffer (Slack accepts raw bytes)
+        if (u8.buffer && typeof ArrayBuffer !== "undefined") {
+            xhr.send(u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength))
+            return
         }
-        xhr.send(s)
-    } catch (e) {
-        console.log("[upload] send failed", e)
+    } catch (eBuf) {
+        console.log("[upload] ArrayBuffer send failed, trying Uint8Array", eBuf)
+    }
+
+    try {
+        xhr.send(u8)
+        return
+    } catch (eU8) {
+        console.log("[upload] Uint8Array send failed", eU8)
+    }
+
+    // Last resort: multipart body as a fresh ArrayBuffer request
+    try {
+        var boundary = "----UTSlack" + Date.now()
+        var name = (filename || "upload.bin").replace(/"/g, "")
+        var head = "--" + boundary + "\r\n"
+                + "Content-Disposition: form-data; name=\"file\"; filename=\"" + name + "\"\r\n"
+                + "Content-Type: " + contentType + "\r\n\r\n"
+        var tail = "\r\n--" + boundary + "--\r\n"
+        var headBytes = []
+        var tailBytes = []
+        var i
+        for (i = 0; i < head.length; i++)
+            headBytes.push(head.charCodeAt(i) & 0xff)
+        for (i = 0; i < tail.length; i++)
+            tailBytes.push(tail.charCodeAt(i) & 0xff)
+        var combined = new Uint8Array(headBytes.length + u8.length + tailBytes.length)
+        combined.set(headBytes, 0)
+        combined.set(u8, headBytes.length)
+        combined.set(tailBytes, headBytes.length + u8.length)
+
+        var xhr2 = new XMLHttpRequest()
+        xhr2.onreadystatechange = function() {
+            if (xhr2.readyState !== XMLHttpRequest.DONE)
+                return
+            if (xhr2.status >= 200 && xhr2.status < 300)
+                callback(true, "")
+            else {
+                console.log("[upload] multipart POST failed", xhr2.status)
+                callback(false, "upload_http_" + xhr2.status)
+            }
+        }
+        xhr2.open("POST", uploadUrl)
+        xhr2.setRequestHeader("Content-Type", "multipart/form-data; boundary=" + boundary)
+        xhr2.send(combined.buffer.slice(combined.byteOffset, combined.byteOffset + combined.byteLength))
+    } catch (eMp) {
+        console.log("[upload] send failed", eMp)
         callback(false, "upload_send_failed")
     }
 }
@@ -658,18 +724,44 @@ function uploadLocalFile(channelId, fileUrl, options, callback) {
     if (!callback)
         callback = function() {}
     options = options || {}
-    var filename = options.filename || _basenameFromUrl(fileUrl)
+    var path = "" + (fileUrl || "")
+    // Content Hub sometimes hands back absolute paths without a scheme
+    if (path.length > 0 && path.indexOf("://") === -1 && path.charAt(0) === "/")
+        path = "file://" + path
+    var filename = options.filename || _basenameFromUrl(path)
     var comment = options.initialComment || options.comment || ""
     var title = options.title || filename
+    var mime = options.mimetype || _guessMimeFromName(filename)
 
-    _readLocalFileBytes(fileUrl, function(bytes, err) {
+    _readLocalFileBytes(path, function(bytes, err) {
         if (!bytes) {
             callback({ ok: false, error: err || "read_failed", message: "Could not read the selected file" })
             return
         }
+        var len = _byteLength(bytes)
+        if (len <= 0) {
+            callback({ ok: false, error: "empty_file", message: "Selected file was empty" })
+            return
+        }
+
+        // Catch binary corruption early (common when XHR reads images as UTF-8 text)
+        var sniffed = _sniffImageMime(bytes)
+        if (mime.indexOf("image/") === 0 && !sniffed) {
+            console.log("[upload] file bytes are not a valid image after read", filename, "len=" + len)
+            callback({
+                ok: false,
+                error: "corrupt_image_read",
+                message: "Couldn't read image bytes correctly from disk"
+            })
+            return
+        }
+        if (sniffed)
+            mime = sniffed
+
+        console.log("[upload] starting", filename, "len=" + len, "mime=" + mime)
         api("files.getUploadURLExternal", {
             filename: filename,
-            length: bytes.length
+            length: len
         }, function(res) {
             if (!res || !res.ok) {
                 callback(res || { ok: false, error: "get_upload_url_failed", message: "Could not start upload" })
@@ -681,7 +773,7 @@ function uploadLocalFile(channelId, fileUrl, options, callback) {
                 callback({ ok: false, error: "invalid_upload_session", message: "Slack did not return an upload URL" })
                 return
             }
-            _postUploadBytes(uploadUrl, bytes, function(ok, upErr) {
+            _postUploadBytes(uploadUrl, bytes, filename, mime, function(ok, upErr) {
                 if (!ok) {
                     callback({ ok: false, error: upErr || "upload_failed", message: "Failed to upload file bytes" })
                     return
@@ -731,6 +823,170 @@ function conversationsJoin(channelId, callback) {
     api("conversations.join", {
         channel: channelId
     }, callback)
+}
+
+function conversationsInfo(channelId, callback) {
+    api("conversations.info", { channel: channelId }, callback)
+}
+
+// Sync Slack's read cursor (official-client unread / "read receipts").
+// Requires user scopes: channels:write, groups:write, im:write, mpim:write.
+// `ts` must be a real message timestamp in the channel — not wall-clock time.
+var _markedUpTo = {}
+
+function conversationsMark(channelId, ts, callback) {
+    if (!callback)
+        callback = function() {}
+    if (!channelId || !ts) {
+        callback({ ok: false, error: "missing_args" })
+        return
+    }
+    var stamp = "" + ts
+    if (_markedUpTo[channelId] && _markedUpTo[channelId] >= stamp) {
+        callback({ ok: true, skipped: true })
+        return
+    }
+    api("conversations.mark", { channel: channelId, ts: stamp }, function(res) {
+        if (res && res.ok)
+            _markedUpTo[channelId] = stamp
+        else if (res && res.error === "missing_scope")
+            console.warn("conversations.mark missing_scope — add user scopes channels:write, groups:write, im:write, mpim:write and reinstall")
+        else if (res && !res.ok && res.error !== "skipped")
+            console.warn("conversations.mark failed:", res.error || res.message || "unknown")
+        callback(res)
+    })
+}
+
+// Set item.hasUnread from Slack's read cursor (same source as the official client).
+// DMs / MPIMs: unread_count_display from conversations.info.
+// Channels: unread_count is unreliable (often 0) — compare last_read to history.
+function enrichItemsWithSlackUnread(items, callback) {
+    if (!callback)
+        callback = function() {}
+    if (!items || items.length === 0) {
+        callback(items || [])
+        return
+    }
+
+    var selfId = (_authInfo && _authInfo.userId) ? _authInfo.userId : ""
+    var index = 0
+    var inFlight = 0
+    var finished = 0
+    var concurrency = 4
+    var total = items.length
+
+    function finishOne() {
+        finished++
+        if (finished >= total)
+            callback(items)
+        else
+            startNext()
+    }
+
+    function historyHasUnread(channelId, lastRead, done) {
+        var oldest = lastRead || "0"
+        if (oldest === "0000000000.000000")
+            oldest = "0"
+        conversationsHistory(channelId, {
+            oldest: oldest,
+            limit: 10
+        }, function(res) {
+            if (!res || !res.ok) {
+                done(false)
+                return
+            }
+            var msgs = res.messages || []
+            for (var i = 0; i < msgs.length; i++) {
+                var m = msgs[i]
+                if (!m || !m.ts)
+                    continue
+                // Exclusive of last_read (Slack default when inclusive omitted)
+                if (oldest !== "0" && m.ts <= oldest)
+                    continue
+                if (m.subtype === "channel_join" || m.subtype === "channel_leave"
+                        || m.subtype === "group_join" || m.subtype === "group_leave")
+                    continue
+                if (selfId && m.user === selfId)
+                    continue
+                done(true)
+                return
+            }
+            done(false)
+        })
+    }
+
+    function latestTsFromChannel(ch) {
+        if (!ch || ch.latest === undefined || ch.latest === null)
+            return { ts: "", user: "" }
+        if (typeof ch.latest === "string")
+            return { ts: ch.latest, user: "" }
+        return {
+            ts: ch.latest.ts || "",
+            user: ch.latest.user || ""
+        }
+    }
+
+    function startNext() {
+        while (inFlight < concurrency && index < total) {
+            (function(item) {
+                inFlight++
+                conversationsInfo(item.id, function(infoRes) {
+                    function done(hasUnread) {
+                        item.hasUnread = !!hasUnread
+                        item.slackUnreadCount = hasUnread
+                                ? Math.max(1, Number(item.slackUnreadCount) || 0)
+                                : 0
+                        inFlight--
+                        finishOne()
+                    }
+
+                    if (!infoRes || !infoRes.ok || !infoRes.channel) {
+                        done(false)
+                        return
+                    }
+                    var ch = infoRes.channel
+                    var isDm = !!(item.isIm || item.isMpim || ch.is_im || ch.is_mpim)
+
+                    var unreadCount = Number(ch.unread_count_display)
+                    if (isNaN(unreadCount))
+                        unreadCount = Number(ch.unread_count)
+
+                    // DMs: Slack populates unread_count*; trust it when present
+                    if (isDm && !isNaN(unreadCount)) {
+                        done(unreadCount > 0)
+                        return
+                    }
+
+                    var lastRead = ch.last_read || ""
+                    if (lastRead === "0000000000.000000")
+                        lastRead = ""
+
+                    var latest = latestTsFromChannel(ch)
+                    if (latest.ts && lastRead) {
+                        if (latest.ts <= lastRead) {
+                            done(false)
+                            return
+                        }
+                        // Message after last_read — bold unless it's only our own latest
+                        if (!selfId || latest.user !== selfId) {
+                            done(true)
+                            return
+                        }
+                    }
+
+                    // Channels (and DMs missing counts): probe history after last_read
+                    if (!lastRead && !isDm) {
+                        // Never opened in Slack — skip to avoid marking every dormant join
+                        done(false)
+                        return
+                    }
+                    historyHasUnread(item.id, lastRead || "0", done)
+                })
+            })(items[index++])
+        }
+    }
+
+    startNext()
 }
 
 // Undocumented client prefs — best-effort mute sync with Slack.

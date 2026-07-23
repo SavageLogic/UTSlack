@@ -255,13 +255,31 @@ Page {
 
     Component.onCompleted: reload()
 
-    onVisibleChanged: {
-        if (!visible)
-            return
+    function syncUnreadFromStorage() {
         if (app && app.refreshConversationUnread && allItems && allItems.length > 0) {
             allItems = app.refreshConversationUnread(allItems)
             applyFilter()
         }
+    }
+
+    // PageStack often keeps this page "visible" under ChatPage, so onVisibleChanged
+    // may not fire when popping back — watch the stack instead.
+    Connections {
+        target: pageStack
+        onDepthChanged: {
+            if (pageStack.currentPage === conversationsPage)
+                conversationsPage.syncUnreadFromStorage()
+        }
+        onCurrentPageChanged: {
+            if (pageStack.currentPage === conversationsPage)
+                conversationsPage.syncUnreadFromStorage()
+        }
+    }
+
+    onVisibleChanged: {
+        if (!visible)
+            return
+        conversationsPage.syncUnreadFromStorage()
         if (app && app.pendingConversationsReload) {
             app.pendingConversationsReload = false
             reload()

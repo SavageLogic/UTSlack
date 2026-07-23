@@ -163,7 +163,7 @@ Page {
             pendingScrollTs = focusTs || ts
             appendMessages(items || [], true)
             if (newestTs && app.markChannelSeen)
-                app.markChannelSeen(channelId, newestTs)
+                app.markChannelSeen(channelId, newestTs, true)
             scrollToTsTimer.start()
         })
     }
@@ -256,8 +256,13 @@ Page {
                 return
             }
             appendMessages(items || [], true)
-            if (newestTs && app && app.markChannelSeen)
-                app.markChannelSeen(channelId, newestTs)
+            // Local unread clear always; Slack read cursor only with a real message ts
+            if (app && app.markChannelSeen) {
+                if (newestTs)
+                    app.markChannelSeen(channelId, newestTs, true)
+                else
+                    app.markChannelSeen(channelId)
+            }
             chatPage.scrollToLatest(true)
         })
     }
@@ -279,7 +284,7 @@ Page {
             if (fresh.length > 0) {
                 appendMessages(fresh, false)
                 if (newestTs && app && app.markChannelSeen)
-                    app.markChannelSeen(channelId, newestTs)
+                    app.markChannelSeen(channelId, newestTs, true)
             }
         })
     }
@@ -392,7 +397,12 @@ Page {
         })
     }
 
-    Component.onCompleted: loadHistory(true)
+    Component.onCompleted: {
+        // Local unread clear immediately; Slack mark waits for message ts from history.
+        if (channelId && app && app.markChannelSeen)
+            app.markChannelSeen(channelId)
+        loadHistory(true)
+    }
     Component.onDestruction: activePolling = false
 
     Timer {

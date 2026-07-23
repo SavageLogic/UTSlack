@@ -346,11 +346,15 @@ MainView {
                             return 1
                         return 0
                     })
-                    var openedMap = Storage.getLastOpenedMap()
-                    if (Models.applyUnreadState(merged, openedMap))
-                        Storage.setLastOpenedMap(openedMap)
+                    // Show list immediately, then apply Slack last_read / unread_count
                     updateNotifyWatchList(merged)
                     callback(true, merged, "")
+                    Slack.enrichItemsWithSlackUnread(merged, function(withUnread) {
+                        for (var i = 0; i < withUnread.length; i++)
+                            withUnread[i].slackUnreadChecked = true
+                        updateNotifyWatchList(withUnread)
+                        callback(true, withUnread, "")
+                    })
                 })
             })
         })
@@ -560,16 +564,33 @@ MainView {
             callback(false, i18n.tr("Couldn't copy image link"))
     }
 
-    function markChannelSeen(channelId, ts) {
-        Notify.markSeen(channelId, ts)
-        Storage.markChannelOpened(channelId, ts)
+    property string lastReadChannelId: ""
+
+    // syncSlack: only true when `ts` is a real Slack message timestamp from history.
+    // Wall-clock times are rejected by conversations.mark (invalid_timestamp).
+    function markChannelSeen(channelId, ts, syncSlack) {
+        if (!channelId)
+            return
+        lastReadChannelId = channelId
+        var stamp = ts || ("" + (Date.now() / 1000))
+        Notify.markSeen(channelId, stamp)
+        Storage.markChannelOpened(channelId, stamp)
+        if (syncSlack && ts)
+            Slack.conversationsMark(channelId, "" + ts, function() {})
     }
 
     function refreshConversationUnread(items) {
         var list = items || []
-        var openedMap = Storage.getLastOpenedMap()
-        if (Models.applyUnreadState(list, openedMap))
-            Storage.setLastOpenedMap(openedMap)
+        // After leaving a chat, clear that row immediately (full Slack re-probe is on reload)
+        if (lastReadChannelId) {
+            for (var i = 0; i < list.length; i++) {
+                if (list[i] && list[i].id === lastReadChannelId) {
+                    list[i].hasUnread = false
+                    list[i].slackUnreadCount = 0
+                    break
+                }
+            }
+        }
         return list
     }
 
