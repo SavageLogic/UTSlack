@@ -79,7 +79,7 @@ UTSlack registers with **UBports Push** and polls Slack for new messages about e
 qml/
   Main.qml                 # Auth gate, PageStack, PushClient, API façade
   AppTheme.qml             # Adaptive light/dark brand + bubble colors
-  pages/                   # Login, conversations, chat, settings
+    pages/                   # Login, conversations, chat, settings, share target
   components/              # List/message/composer widgets
   js/
     SlackClient.js         # Slack Web API + pagination / 429 backoff
@@ -91,11 +91,16 @@ push/
   push-helper.json
   push-apparmor.json
 assets/logo.svg
+utslack-contenthub.json    # Content Hub share destination (links, media, …)
 ```
 
 ## Privacy
 
 Your token is stored only on-device in the app’s LocalStorage database. Logging out clears it. The app talks directly to `https://slack.com/api/` and `https://push.ubports.com/notify` — there is no intermediate Slack relay server.
+
+## Share from other apps
+
+UTSlack registers as a Content Hub share target for **links**, text, pictures, documents, and videos. From another app’s share menu, choose UTSlack, pick a channel or DM, and the link/file is posted there.
 
 ## Not in v1
 

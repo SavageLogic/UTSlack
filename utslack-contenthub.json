@@ -2,7 +2,16 @@
     "destination": [
         "pictures",
         "documents",
-        "videos"
+        "videos",
+        "links",
+        "text"
+    ],
+    "share": [
+        "pictures",
+        "documents",
+        "videos",
+        "links",
+        "text"
     ],
     "source": [
         "pictures"

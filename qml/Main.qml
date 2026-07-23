@@ -7,6 +7,7 @@
 import QtQuick 2.7
 import Lomiri.Components 1.3
 import Ubuntu.PushNotifications 0.1
+import Lomiri.Content 1.3
 import "js/SlackClient.js" as Slack
 import "js/Storage.js" as Storage
 import "js/Models.js" as Models
@@ -32,6 +33,11 @@ MainView {
     property bool notificationsEnabled: true
     property string pushStatus: ""
 
+    // Incoming Content Hub share (links / files from other apps)
+    property var pendingShareTransfer: null
+    property var pendingSharePayload: null
+    property bool sharePageOpen: false
+
     AppTheme {
         id: appTheme
     }
@@ -53,6 +59,102 @@ MainView {
         clipboardHelper.selectAll()
         clipboardHelper.copy()
         return true
+    }
+
+    function basenameFromUrl(url) {
+        var s = ("" + (url || "")).split("?")[0]
+        var parts = s.split("/")
+        var name = parts.length ? parts[parts.length - 1] : "file"
+        try { name = decodeURIComponent(name) } catch (e) {}
+        return name || "file"
+    }
+
+    function looksLikeHttpUrl(value) {
+        var s = ("" + (value || "")).trim()
+        return /^https?:\/\//i.test(s)
+    }
+
+    function payloadFromTransfer(transfer) {
+        if (!transfer)
+            return null
+        var items = transfer.items
+        if (!items || items.length === 0)
+            return null
+        var item = items[0]
+        var url = ""
+        var text = ""
+        var name = ""
+        try { url = item.url ? ("" + item.url) : "" } catch (e) { url = "" }
+        try { text = item.text ? ("" + item.text).trim() : "" } catch (e2) { text = "" }
+        try { name = item.name ? ("" + item.name) : "" } catch (e3) { name = "" }
+
+        var ctype = transfer.contentType
+        var isLinkType = (ctype === ContentType.Links || ctype === ContentType.Text)
+        var httpFromUrl = looksLikeHttpUrl(url)
+        var httpFromText = looksLikeHttpUrl(text)
+
+        if (isLinkType || httpFromUrl || (httpFromText && (!url || url.indexOf("file://") === 0))) {
+            var link = httpFromUrl ? url.trim() : (httpFromText ? text : (url || text).trim())
+            if (!link)
+                return null
+            return {
+                kind: "link",
+                url: link,
+                text: text,
+                name: name
+            }
+        }
+
+        if (!url)
+            return null
+        return {
+            kind: "file",
+            url: url,
+            text: text,
+            name: name || basenameFromUrl(url)
+        }
+    }
+
+    function clearPendingShare() {
+        pendingShareTransfer = null
+        pendingSharePayload = null
+        sharePageOpen = false
+    }
+
+    function openShareTargetIfNeeded() {
+        if (!ready || !pendingSharePayload || sharePageOpen)
+            return
+        sharePageOpen = true
+        pageStack.push(Qt.resolvedUrl("pages/ShareTargetPage.qml"), {
+            app: root,
+            transfer: pendingShareTransfer,
+            payload: pendingSharePayload
+        })
+    }
+
+    function handleIncomingShare(transfer) {
+        if (!transfer)
+            return
+        var payload = payloadFromTransfer(transfer)
+        if (!payload) {
+            try { transfer.state = ContentTransfer.Aborted } catch (e) {}
+            return
+        }
+        // Replace any previous unfinished share
+        if (pendingShareTransfer && pendingShareTransfer !== transfer) {
+            try { pendingShareTransfer.state = ContentTransfer.Aborted } catch (e2) {}
+        }
+        pendingShareTransfer = transfer
+        pendingSharePayload = payload
+        if (ready)
+            openShareTargetIfNeeded()
+        // else: wait until login succeeds / conversations shown
+    }
+
+    Connections {
+        target: ContentHub
+        onShareRequested: root.handleIncomingShare(transfer)
+        onImportRequested: root.handleIncomingShare(transfer)
     }
 
     // Retry scheduler for SlackClient rate-limit backoff
@@ -213,6 +315,7 @@ MainView {
     function showConversations() {
         pageStack.clear()
         pageStack.push(Qt.resolvedUrl("pages/ConversationsPage.qml"), { app: root })
+        openShareTargetIfNeeded()
     }
 
     function updateNotifyWatchList(items) {
