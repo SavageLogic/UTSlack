@@ -437,6 +437,24 @@ MainView {
         })
     }
 
+    function loadThread(channelId, threadTs, options, callback) {
+        if (!channelId || !threadTs) {
+            callback(false, [], i18n.tr("Missing thread"))
+            return
+        }
+        Slack.conversationsReplies(channelId, threadTs, options || {}, function(res) {
+            if (!res || !res.ok) {
+                callback(false, [], (res && (res.message || res.error)) || i18n.tr("API error"))
+                return
+            }
+            var raw = res.messages || []
+            var ids = Slack.collectUserIdsFromMessages(raw)
+            Slack.ensureUsersCached(ids, function() {
+                callback(true, Models.normalizeMessages(raw), "")
+            })
+        })
+    }
+
     function searchInChannel(channelId, query, callback) {
         var q = ("" + (query || "")).trim()
         if (!channelId || !q) {
@@ -491,7 +509,7 @@ MainView {
         return Slack.searchUsersForMention(query, 8)
     }
 
-    function sendMessage(channelId, text, callback) {
+    function sendMessage(channelId, text, callback, options) {
         var encoded = Slack.encodeTextMentions(text || "")
         Slack.chatPostMessage(channelId, encoded, function(res) {
             if (!res || !res.ok) {
@@ -499,13 +517,14 @@ MainView {
                 return
             }
             callback(true, "")
-        })
+        }, options || {})
     }
 
     function uploadFile(channelId, fileUrl, options, callback) {
         var opts = options || {}
         if (opts.initialComment)
             opts.initialComment = Slack.encodeTextMentions(opts.initialComment)
+        // opts.threadTs is forwarded by Slack.uploadLocalFile
         Slack.uploadLocalFile(channelId, fileUrl, opts, function(res) {
             if (!res || !res.ok) {
                 callback(false, (res && (res.message || res.error)) || i18n.tr("Upload failed"))

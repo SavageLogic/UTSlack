@@ -195,13 +195,27 @@ Page {
                 plainText: m.plainText || "",
                 imagesJson: m.imagesJson || "[]",
                 timeLabel: m.timeLabel,
-                isSelf: app && app.userId && m.userId === app.userId
+                isSelf: app && app.userId && m.userId === app.userId,
+                replyCount: m.replyCount || 0,
+                threadTs: m.threadTs || ""
             })
             if (!newestTs || m.ts > newestTs)
                 newestTs = m.ts
         }
         if (!pendingScrollTs && (replace || items.length > 0))
             chatPage.scrollToLatest(replace)
+    }
+
+    function openThread(threadTs, rootMessage) {
+        if (!threadTs || !channelId)
+            return
+        pageStack.push(Qt.resolvedUrl("ThreadPage.qml"), {
+            app: chatPage.app,
+            channelId: chatPage.channelId,
+            channelTitle: chatPage.channelTitle,
+            threadTs: threadTs,
+            rootMessage: rootMessage || null
+        })
     }
 
     function scrollToLatest(forceReliable) {
@@ -449,6 +463,7 @@ Page {
 
         delegate: MessageDelegate {
             width: listView.width
+            ts: model.ts || ""
             author: model.author
             avatarUrl: model.avatarUrl || ""
             text: model.text
@@ -456,10 +471,24 @@ Page {
             timeLabel: model.timeLabel
             isSelf: model.isSelf
             imagesJson: model.imagesJson || "[]"
+            replyCount: model.replyCount || 0
+            threadTs: model.threadTs || ""
             onImageOpenRequested: chatPage.openImageViewer(imageInfo)
             onImageDownloadRequested: chatPage.downloadImage(imageInfo)
             onImageCopyRequested: chatPage.copyImage(imageInfo)
             onCopyTextRequested: chatPage.copyMessageText(value)
+            onThreadOpenRequested: chatPage.openThread(threadTs, {
+                ts: model.ts,
+                author: model.author,
+                avatarUrl: model.avatarUrl || "",
+                text: model.text,
+                plainText: model.plainText || "",
+                imagesJson: model.imagesJson || "[]",
+                timeLabel: model.timeLabel,
+                isSelf: model.isSelf,
+                replyCount: model.replyCount || 0,
+                threadTs: model.threadTs || threadTs
+            })
         }
 
         Label {

@@ -8,6 +8,7 @@ Native Slack client for [Ubuntu Touch](https://ubuntu-touch.io/), built with QML
 - Collapsible **Channels** and **Direct messages** groups
 - Start a new DM or join/open a channel via **+**
 - Read channel/DM history (including inline images and file attachments)
+- Open **threads**, read replies, and reply in a dedicated thread view
 - Search within a conversation
 - Send messages and upload photos/files
 - Poll for new messages while a chat is open (~8s)
@@ -79,7 +80,7 @@ UTSlack registers with **UBports Push** and polls Slack for new messages about e
 qml/
   Main.qml                 # Auth gate, PageStack, PushClient, API façade
   AppTheme.qml             # Adaptive light/dark brand + bubble colors
-    pages/                   # Login, conversations, chat, settings, share target
+  pages/                   # Login, conversations, chat, thread, settings, share target
   components/              # List/message/composer widgets
   js/
     SlackClient.js         # Slack Web API + pagination / 429 backoff
@@ -104,7 +105,7 @@ UTSlack registers as a Content Hub share target for **links**, text, pictures, d
 
 ## Not in v1
 
-Threads, reactions, search, background daemon when fully suspended, and embedded OAuth (bring-your-own Client ID) are out of scope for this release.
+Reactions, background daemon when fully suspended, and embedded OAuth (bring-your-own Client ID) are out of scope for this release.
 
 ## License
 

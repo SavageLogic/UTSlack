@@ -7,6 +7,7 @@ Item {
     width: parent ? parent.width : units.gu(40)
     height: contentRow.height + units.gu(1)
 
+    property string ts: ""
     property string author: ""
     property string avatarUrl: ""
     property string text: ""
@@ -14,6 +15,9 @@ Item {
     property string timeLabel: ""
     property bool isSelf: false
     property string imagesJson: "[]"
+    property int replyCount: 0
+    property string threadTs: ""
+    property bool showThreadActions: true
 
     property var imageList: []
 
@@ -38,6 +42,14 @@ Item {
     readonly property color linkColor: dark ? "#7EB6FF" : theme.palette.normal.activity
     readonly property bool hasText: root.text && root.text.length > 0 && root.text !== "<br/>"
     readonly property bool hasImages: imageList && imageList.length > 0
+    readonly property string effectiveThreadTs: root.threadTs || root.ts
+    readonly property string repliesLabel: {
+        if (root.replyCount <= 0)
+            return ""
+        if (root.replyCount === 1)
+            return i18n.tr("1 reply")
+        return i18n.tr("%1 replies").arg(root.replyCount)
+    }
     readonly property string copyPayload: {
         var p = ("" + root.plainText).trim()
         if (p.length > 0)
@@ -56,11 +68,19 @@ Item {
     signal imageDownloadRequested(var imageInfo)
     signal imageCopyRequested(var imageInfo)
     signal copyTextRequested(string value)
+    signal threadOpenRequested(string threadTs)
 
     function openCopyMenu(caller) {
-        if (root.copyPayload.length === 0)
-            return
         PopupUtils.open(messageMenu, caller || bubble)
+    }
+
+    function openThread() {
+        if (!root.showThreadActions)
+            return
+        var t = root.effectiveThreadTs
+        if (!t)
+            return
+        root.threadOpenRequested(t)
     }
 
     Row {
@@ -106,6 +126,13 @@ Item {
                 border.color: root.isSelf ? root.bubbleSelfBorder : theme.palette.normal.base
                 border.width: units.dp(1)
                 visible: root.hasText || root.hasImages
+
+                MouseArea {
+                    anchors.fill: parent
+                    z: -1
+                    enabled: root.hasImages && !root.hasText
+                    onPressAndHold: root.openCopyMenu(bubble)
+                }
 
                 Column {
                     id: innerCol
@@ -161,6 +188,25 @@ Item {
                 }
             }
 
+            AbstractButton {
+                id: repliesButton
+                visible: root.showThreadActions && root.replyCount > 0
+                height: visible ? units.gu(3) : 0
+                width: parent.width
+                onClicked: root.openThread()
+
+                Label {
+                    anchors {
+                        left: parent.left
+                        verticalCenter: parent.verticalCenter
+                    }
+                    text: root.repliesLabel
+                    fontSize: "small"
+                    font.bold: true
+                    color: theme.palette.normal.activity
+                }
+            }
+
             Label {
                 anchors.right: parent.right
                 text: root.timeLabel
@@ -174,6 +220,13 @@ Item {
         id: messageMenu
         ActionSelectionPopover {
             actions: ActionList {
+                Action {
+                    iconName: "mail-reply"
+                    text: i18n.tr("Reply in thread")
+                    visible: root.showThreadActions
+                    enabled: root.effectiveThreadTs.length > 0
+                    onTriggered: root.openThread()
+                }
                 Action {
                     iconName: "edit-copy"
                     text: i18n.tr("Copy message")

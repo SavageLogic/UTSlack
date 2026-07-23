@@ -507,6 +507,23 @@ function conversationsHistory(channelId, options, callback) {
     api("conversations.history", args, callback)
 }
 
+function conversationsReplies(channelId, threadTs, options, callback) {
+    var args = {
+        channel: channelId,
+        ts: threadTs,
+        limit: (options && options.limit) ? options.limit : 50
+    }
+    if (options && options.oldest)
+        args.oldest = options.oldest
+    if (options && options.latest)
+        args.latest = options.latest
+    if (options && options.cursor)
+        args.cursor = options.cursor
+    if (options && options.inclusive)
+        args.inclusive = true
+    api("conversations.replies", args, callback)
+}
+
 // Full-channel search. Requires user scope search:read.
 // Prefer query built as: 'in:CHANNEL_ID terms'
 function searchMessages(query, options, callback) {
@@ -521,11 +538,15 @@ function searchMessages(query, options, callback) {
     api("search.messages", args, callback)
 }
 
-function chatPostMessage(channelId, text, callback) {
-    api("chat.postMessage", {
+function chatPostMessage(channelId, text, callback, options) {
+    var args = {
         channel: channelId,
         text: text
-    }, callback)
+    }
+    options = options || {}
+    if (options.threadTs)
+        args.thread_ts = options.threadTs
+    api("chat.postMessage", args, callback)
 }
 
 function _guessMimeFromName(name) {
@@ -671,6 +692,8 @@ function uploadLocalFile(channelId, fileUrl, options, callback) {
                 }
                 if (comment && ("" + comment).trim().length > 0)
                     completeArgs.initial_comment = ("" + comment).trim()
+                if (options.threadTs)
+                    completeArgs.thread_ts = options.threadTs
                 api("files.completeUploadExternal", completeArgs, function(done) {
                     callback(done || { ok: false, error: "complete_failed", message: "Failed to finalize upload" })
                 })

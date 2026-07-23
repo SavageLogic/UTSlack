@@ -740,8 +740,11 @@ function normalizeMessages(messages) {
             || (userId ? Slack.userDisplayName(userId) : "System")
         var raw = m.text || ""
         var images = extractImages(m)
+        var ts = m.ts || ""
+        var threadTs = m.thread_ts || ""
+        var replyCount = Number(m.reply_count) || 0
         items.push({
-            ts: m.ts || "",
+            ts: ts,
             userId: userId,
             author: author,
             avatarUrl: userId ? Slack.userAvatarUrl(userId, 72) : "",
@@ -751,7 +754,10 @@ function normalizeMessages(messages) {
             imagesJson: JSON.stringify(images),
             hasImages: images.length > 0,
             timeLabel: formatTs(m.ts),
-            dayLabel: formatDay(m.ts)
+            dayLabel: formatDay(m.ts),
+            replyCount: replyCount,
+            threadTs: threadTs,
+            isThreadParent: !!(replyCount > 0 || (threadTs && threadTs === ts))
         })
     }
     return items
