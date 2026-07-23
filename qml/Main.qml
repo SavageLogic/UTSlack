@@ -1,0 +1,406 @@
+/*
+ * Copyright (c) 2026 Kevin Hasselquist
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
+import QtQuick 2.7
+import Lomiri.Components 1.3
+import Ubuntu.PushNotifications 0.1
+import "js/SlackClient.js" as Slack
+import "js/Storage.js" as Storage
+import "js/Models.js" as Models
+import "js/Notify.js" as Notify
+
+MainView {
+    id: root
+    objectName: "mainView"
+    applicationName: "utslack.savagelogic"
+    automaticOrientation: true
+
+    width: units.gu(45)
+    height: units.gu(75)
+
+    property string userId: ""
+    property string userName: ""
+    property string teamName: ""
+    property bool ready: false
+    property bool pendingConversationsReload: false
+    property var lastRawChannels: []
+    property bool notificationsEnabled: true
+    property string pushStatus: ""
+
+    AppTheme {
+        id: appTheme
+    }
+    // Expose adaptive colors to pages/components via app.colors
+    property alias colors: appTheme
+
+    // Qt.labs.platform Clipboard is not creatable on UT/clickable desktop.
+    // TextEdit.copy() still talks to the system clipboard.
+    TextEdit {
+        id: clipboardHelper
+        visible: false
+        text: ""
+    }
+
+    function copyTextToClipboard(value) {
+        if (!value)
+            return false
+        clipboardHelper.text = "" + value
+        clipboardHelper.selectAll()
+        clipboardHelper.copy()
+        return true
+    }
+
+    // Retry scheduler for SlackClient rate-limit backoff
+    QtObject {
+        id: retryBridge
+        property var queue: []
+
+        function schedule(delayMs, fn) {
+            queue.push({ at: Date.now() + delayMs, fn: fn })
+            if (!retryTimer.running)
+                retryTimer.start()
+        }
+    }
+
+    Timer {
+        id: retryTimer
+        interval: 200
+        repeat: true
+        running: false
+        onTriggered: {
+            var now = Date.now()
+            var remaining = []
+            for (var i = 0; i < retryBridge.queue.length; i++) {
+                var item = retryBridge.queue[i]
+                if (item.at <= now)
+                    item.fn()
+                else
+                    remaining.push(item)
+            }
+            retryBridge.queue = remaining
+            if (remaining.length === 0)
+                retryTimer.stop()
+        }
+    }
+
+    PushClient {
+        id: pushClient
+        appId: "utslack.savagelogic_utslack"
+
+        onError: {
+            console.warn("[push] error:", reason)
+            if (reason === "bad auth")
+                root.pushStatus = i18n.tr("Sign in to OpenStore / UBports account for push")
+            else
+                root.pushStatus = reason || i18n.tr("Push error")
+        }
+
+        onTokenChanged: {
+            Notify.setPushToken(pushClient.token)
+            if (pushClient.token) {
+                root.pushStatus = i18n.tr("Push registered")
+                console.log("[push] token ready")
+            }
+        }
+
+        onNotificationsChanged: root.handlePushMessages(notifications)
+    }
+
+    Timer {
+        id: notifyPollTimer
+        interval: 45000
+        repeat: true
+        running: root.ready && root.notificationsEnabled
+                 && Qt.application.state !== Qt.ApplicationSuspended
+        onTriggered: Notify.pollOnce()
+    }
+
+    function setNotificationsEnabled(enabled) {
+        notificationsEnabled = !!enabled
+        Notify.setEnabled(notificationsEnabled)
+        Storage.setNotificationsEnabled(notificationsEnabled)
+    }
+
+    function handlePushMessages(messages) {
+        if (!messages || messages.length === 0)
+            return
+        for (var i = 0; i < messages.length; i++) {
+            var raw = messages[i]
+            var data = raw
+            if (typeof raw === "string") {
+                try { data = JSON.parse(raw) } catch (e) { continue }
+            }
+            var msg = data.message || data
+            if (msg && msg.channelId) {
+                openChatFromNotification(msg.channelId, msg.channelTitle || "")
+                return
+            }
+        }
+    }
+
+    function openChatFromNotification(channelId, channelTitle) {
+        if (!channelId || !ready)
+            return
+        pageStack.push(Qt.resolvedUrl("pages/ChatPage.qml"), {
+            app: root,
+            channelId: channelId,
+            channelTitle: channelTitle || i18n.tr("Chat")
+        })
+    }
+
+    function connectWithToken(token, callback) {
+        var cleaned = Slack.sanitizeToken(token)
+        if (!cleaned) {
+            if (callback)
+                callback(false, i18n.tr("Paste a Slack User OAuth Token (xoxp-…)."))
+            return
+        }
+        if (cleaned.indexOf("xoxb-") === 0) {
+            if (callback)
+                callback(false, i18n.tr("That looks like a Bot token (xoxb-). UTSlack needs a User OAuth Token (xoxp-) from OAuth & Permissions → User OAuth Token."))
+            return
+        }
+        if (cleaned.indexOf("xoxp-") !== 0 && cleaned.indexOf("xoxe-") !== 0) {
+            if (callback)
+                callback(false, i18n.tr("Token should start with xoxp-. Copy the User OAuth Token after installing the app to your workspace."))
+            return
+        }
+
+        Slack.setToken(cleaned)
+        Slack.authTest(function(res) {
+            if (!res || !res.ok) {
+                Slack.setToken("")
+                if (callback)
+                    callback(false, (res && (res.message || res.error)) || i18n.tr("Invalid token"))
+                return
+            }
+            Storage.setToken(cleaned)
+            applyAuth(res)
+            showConversations()
+            if (callback)
+                callback(true, "")
+        })
+    }
+
+    function applyAuth(res) {
+        userId = res.user_id || ""
+        userName = res.user || ""
+        teamName = res.team || ""
+        ready = true
+        Notify.setSelfUserId(userId)
+        Notify.loadPrefs()
+        notificationsEnabled = Notify.isEnabled()
+    }
+
+    function logout() {
+        Storage.clearToken()
+        Slack.setToken("")
+        Slack.clearCache()
+        Notify.setConversations([])
+        userId = ""
+        userName = ""
+        teamName = ""
+        ready = false
+        pageStack.clear()
+        pageStack.push(Qt.resolvedUrl("pages/LoginPage.qml"), { app: root })
+    }
+
+    function showConversations() {
+        pageStack.clear()
+        pageStack.push(Qt.resolvedUrl("pages/ConversationsPage.qml"), { app: root })
+    }
+
+    function updateNotifyWatchList(items) {
+        var sorted = (items || []).slice().sort(function(a, b) {
+            return (b.lastActivityTs || 0) - (a.lastActivityTs || 0)
+        })
+        Notify.setConversations(sorted)
+        Notify.initializeSeenBaselines()
+    }
+
+    function loadConversations(callback) {
+        Slack.usersListAll(function(usersRes) {
+            Slack.conversationsListAll(function(res) {
+                if (!res || !res.ok) {
+                    callback(false, [], (res && (res.message || res.error)) || i18n.tr("API error"))
+                    return
+                }
+                lastRawChannels = res.channels || []
+                var items = Models.normalizeConversations(lastRawChannels)
+                var groups = Models.splitConversationGroups(items)
+
+                Slack.filterItemsWithMessages(groups.dms, function(dmsWithMessages) {
+                    var merged = (groups.channels || []).concat(dmsWithMessages || [])
+                    merged.sort(function(a, b) {
+                        if (a.sortKey < b.sortKey)
+                            return -1
+                        if (a.sortKey > b.sortKey)
+                            return 1
+                        return 0
+                    })
+                    updateNotifyWatchList(merged)
+                    callback(true, merged, "")
+                })
+            })
+        })
+    }
+
+    function loadPickerData(callback) {
+        function finish(channels) {
+            lastRawChannels = channels || lastRawChannels || []
+            var existing = Models.normalizeConversations(lastRawChannels)
+            var imByUser = {}
+            var channelIds = {}
+            for (var i = 0; i < existing.length; i++) {
+                if (existing[i].isIm && existing[i].userId)
+                    imByUser[existing[i].userId] = existing[i].id
+                if (existing[i].isChannel)
+                    channelIds[existing[i].id] = true
+            }
+            var people = Models.normalizeUsersForPicker(Slack.getCachedUsers(), userId, imByUser)
+            var chans = Models.normalizeChannelsForPicker(lastRawChannels, channelIds)
+            callback(true, { people: people, channels: chans }, "")
+        }
+
+        Slack.usersListAll(function() {
+            if (lastRawChannels && lastRawChannels.length > 0) {
+                finish(lastRawChannels)
+                return
+            }
+            Slack.conversationsListAll(function(res) {
+                if (!res || !res.ok) {
+                    callback(false, null, (res && (res.message || res.error)) || i18n.tr("API error"))
+                    return
+                }
+                finish(res.channels || [])
+            })
+        })
+    }
+
+    function openDirectMessage(userId, callback) {
+        Slack.conversationsOpen([userId], function(res) {
+            if (!res || !res.ok) {
+                callback(false, null, (res && (res.message || res.error)) || i18n.tr("Could not open DM"))
+                return
+            }
+            var ch = res.channel || {}
+            callback(true, {
+                id: ch.id,
+                title: Models.conversationTitle(ch) || Slack.userDisplayName(userId)
+            }, "")
+        })
+    }
+
+    function openChannelConversation(channelId, isMember, callback) {
+        function done(ch) {
+            callback(true, {
+                id: ch.id || channelId,
+                title: Models.conversationTitle(ch) || ("# " + (ch.name || channelId))
+            }, "")
+        }
+        if (isMember) {
+            done({ id: channelId })
+            return
+        }
+        Slack.conversationsJoin(channelId, function(res) {
+            if (!res || !res.ok) {
+                callback(false, null, (res && (res.message || res.error)) || i18n.tr("Could not join channel"))
+                return
+            }
+            done(res.channel || { id: channelId })
+        })
+    }
+
+    function loadMessages(channelId, options, callback) {
+        Slack.conversationsHistory(channelId, options || {}, function(res) {
+            if (!res || !res.ok) {
+                callback(false, [], (res && (res.message || res.error)) || i18n.tr("API error"))
+                return
+            }
+            var items = Models.normalizeMessages(res.messages || [])
+            callback(true, items, "")
+        })
+    }
+
+    function sendMessage(channelId, text, callback) {
+        Slack.chatPostMessage(channelId, text, function(res) {
+            if (!res || !res.ok) {
+                callback(false, (res && (res.message || res.error)) || i18n.tr("Send failed"))
+                return
+            }
+            callback(true, "")
+        })
+    }
+
+    function uploadFile(channelId, fileUrl, options, callback) {
+        Slack.uploadLocalFile(channelId, fileUrl, options || {}, function(res) {
+            if (!res || !res.ok) {
+                callback(false, (res && (res.message || res.error)) || i18n.tr("Upload failed"))
+                return
+            }
+            callback(true, "")
+        })
+    }
+
+    function copyImageToClipboard(info, callback) {
+        if (!callback)
+            callback = function() {}
+        if (!info) {
+            callback(false, i18n.tr("No image to copy"))
+            return
+        }
+
+        // Pure-QML build: system image clipboard needs a native helper.
+        // For public image URLs we copy the link; private Slack files must be downloaded.
+        var url = info.url || info.thumb || ""
+        var needsAuth = info.needsAuth !== false
+        if (!url) {
+            callback(false, i18n.tr("No image to copy"))
+            return
+        }
+        if (needsAuth) {
+            callback(false, i18n.tr("Private Slack images can't be copied yet — use Download"))
+            return
+        }
+        if (copyTextToClipboard(url))
+            callback(true, "")
+        else
+            callback(false, i18n.tr("Couldn't copy image link"))
+    }
+
+    function markChannelSeen(channelId, ts) {
+        Notify.markSeen(channelId, ts)
+    }
+
+    PageStack {
+        id: pageStack
+        anchors.fill: parent
+    }
+
+    Component.onCompleted: {
+        Slack.setRetryScheduler(function(delayMs, fn) {
+            retryBridge.schedule(delayMs, fn)
+        })
+        Notify.loadPrefs()
+        notificationsEnabled = Notify.isEnabled()
+
+        var token = Storage.getToken()
+        if (token && token.length > 0) {
+            Slack.setToken(token)
+            Slack.authTest(function(res) {
+                if (res && res.ok) {
+                    applyAuth(res)
+                    showConversations()
+                } else {
+                    Storage.clearToken()
+                    pageStack.push(Qt.resolvedUrl("pages/LoginPage.qml"), { app: root })
+                }
+            })
+        } else {
+            pageStack.push(Qt.resolvedUrl("pages/LoginPage.qml"), { app: root })
+        }
+    }
+}

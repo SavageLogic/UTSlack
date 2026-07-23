@@ -1,0 +1,4 @@
+/build/
+/.clickable/
+*.click
+.DS_Store

@@ -1,0 +1,10 @@
+{
+    "destination": [
+        "pictures",
+        "documents",
+        "videos"
+    ],
+    "source": [
+        "pictures"
+    ]
+}

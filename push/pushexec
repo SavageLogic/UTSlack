@@ -1,0 +1,15 @@
+#!/usr/bin/python3
+"""UTSlack push helper — passthrough for Postal / UBports Push payloads."""
+import sys
+
+def main():
+    if len(sys.argv) < 3:
+        sys.exit(1)
+    infile, outfile = sys.argv[1], sys.argv[2]
+    with open(infile, "r", encoding="utf-8") as src:
+        data = src.read()
+    with open(outfile, "w", encoding="utf-8") as dst:
+        dst.write(data)
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,9 @@
+{
+    "policy_groups": [
+        "networking",
+        "push-notification-client",
+        "content_exchange",
+        "content_exchange_source"
+    ],
+    "policy_version": "$ENV{APPARMOR_POLICY}"
+}

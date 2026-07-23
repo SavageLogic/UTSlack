@@ -1,0 +1,20 @@
+{
+    "name": "utslack.savagelogic",
+    "description": "Native Slack client for Ubuntu Touch",
+    "architecture": "$ENV{ARCH}",
+    "title": "UTSlack",
+    "hooks": {
+        "utslack": {
+            "apparmor": "utslack.apparmor",
+            "desktop": "utslack.desktop",
+            "content-hub": "utslack-contenthub.json"
+        },
+        "push": {
+            "apparmor": "push/push-apparmor.json",
+            "push-helper": "push/push-helper.json"
+        }
+    },
+    "version": "1.0.0",
+    "maintainer": "Kevin Hasselquist <savagelogicdev@gmail.com>",
+    "framework": "$ENV{CLICK_FRAMEWORK}"
+}

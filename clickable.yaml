@@ -1,0 +1,14 @@
+clickable_minimum_required: '8.4.0'
+builder: pure-qml-cmake
+kill: qmlscene
+framework: ubuntu-touch-24.04-1.x
+
+# If ~/.clickable/config.yaml has default_arch: arm64 (or always_detect),
+# desktop mode will build/run aarch64 under QEMU and hang.
+# Force host arch for desktop:
+#   clickable desktop --arch amd64
+# Device:
+#   clickable build --arch arm64 && clickable install
+
+scripts:
+  desktop-host: clickable desktop --arch amd64
