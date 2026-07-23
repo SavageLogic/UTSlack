@@ -69,6 +69,7 @@ function normalizeConversations(channels) {
             userId: c.user || "",
             avatarUrl: (c.is_im && c.user) ? Slack.userAvatarUrl(c.user, 72) : "",
             lastActivityTs: activity,
+            hasUnread: false,
             raw: c
         })
     }
@@ -117,6 +118,32 @@ function splitConversationGroups(items) {
             channels.push(it)
     }
     return { channels: channels, dms: dms }
+}
+
+// Mark hasUnread from last activity vs lastOpenedMap.
+// Missing map entries are seeded to current activity (nothing bold until new traffic).
+// Returns true if the map gained new keys and should be persisted.
+function applyUnreadState(items, lastOpenedMap) {
+    var map = lastOpenedMap || {}
+    var mapChanged = false
+    if (!items)
+        return mapChanged
+    for (var i = 0; i < items.length; i++) {
+        var it = items[i]
+        if (!it || !it.id)
+            continue
+        var latest = Number(it.lastActivityTs) || 0
+        var latestStr = latest > 0 ? ("" + latest) : "0"
+        if (!map.hasOwnProperty(it.id)) {
+            map[it.id] = latestStr
+            mapChanged = true
+            it.hasUnread = false
+            continue
+        }
+        var opened = parseFloat(map[it.id]) || 0
+        it.hasUnread = latest > opened
+    }
+    return mapChanged
 }
 
 function normalizeUsersForPicker(usersMap, selfUserId, existingImUserIds) {

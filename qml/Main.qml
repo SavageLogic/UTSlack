@@ -243,6 +243,9 @@ MainView {
                             return 1
                         return 0
                     })
+                    var openedMap = Storage.getLastOpenedMap()
+                    if (Models.applyUnreadState(merged, openedMap))
+                        Storage.setLastOpenedMap(openedMap)
                     updateNotifyWatchList(merged)
                     callback(true, merged, "")
                 })
@@ -437,6 +440,15 @@ MainView {
 
     function markChannelSeen(channelId, ts) {
         Notify.markSeen(channelId, ts)
+        Storage.markChannelOpened(channelId, ts)
+    }
+
+    function refreshConversationUnread(items) {
+        var list = items || []
+        var openedMap = Storage.getLastOpenedMap()
+        if (Models.applyUnreadState(list, openedMap))
+            Storage.setLastOpenedMap(openedMap)
+        return list
     }
 
     PageStack {

@@ -10,6 +10,7 @@ ListItem {
     property string avatarUrl: ""
     property bool isIm: false
     property bool isPrivate: false
+    property bool hasUnread: false
 
     readonly property bool dark: {
         var n = "" + (theme && theme.name ? theme.name : "")
@@ -20,6 +21,7 @@ ListItem {
     ListItemLayout {
         id: layout
         title.text: root.titleText
+        title.font.bold: root.hasUnread
         subtitle.text: root.subtitleText
 
         Item {

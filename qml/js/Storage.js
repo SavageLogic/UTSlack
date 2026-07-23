@@ -83,3 +83,35 @@ function markChannelSeen(channelId, ts) {
         map[channelId] = ts || prev
     setLastSeenMap(map)
 }
+
+// Last time the user opened a conversation (for unread bold in the list).
+// Kept separate from lastSeenMap so push polling can advance "seen for notify"
+// without clearing unread until the chat is actually opened.
+function getLastOpenedMap() {
+    var raw = get("lastOpenedMap", "{}")
+    try {
+        return JSON.parse(raw || "{}") || {}
+    } catch (e) {
+        return {}
+    }
+}
+
+function setLastOpenedMap(map) {
+    try {
+        set("lastOpenedMap", JSON.stringify(map || {}))
+    } catch (e) {
+    }
+}
+
+function markChannelOpened(channelId, ts) {
+    if (!channelId)
+        return
+    var map = getLastOpenedMap()
+    var prev = map[channelId] || "0"
+    var next = ts ? ("" + ts) : prev
+    if (!next)
+        return
+    if (parseFloat(next) >= parseFloat(prev || "0"))
+        map[channelId] = next
+    setLastOpenedMap(map)
+}

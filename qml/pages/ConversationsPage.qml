@@ -84,6 +84,7 @@ Page {
             isPrivate: it.isPrivate,
             userId: it.userId,
             avatarUrl: it.avatarUrl || "",
+            hasUnread: !!it.hasUnread,
             count: 0,
             expanded: false
         })
@@ -111,6 +112,7 @@ Page {
             isPrivate: false,
             userId: "",
             avatarUrl: "",
+            hasUnread: false,
             count: hiddenCount,
             expanded: showingAll
         })
@@ -152,6 +154,7 @@ Page {
             isPrivate: false,
             userId: "",
             avatarUrl: "",
+            hasUnread: false,
             count: channels.length,
             expanded: channelsExpanded
         })
@@ -174,6 +177,7 @@ Page {
             isPrivate: false,
             userId: "",
             avatarUrl: "",
+            hasUnread: false,
             count: dms.length,
             expanded: dmsExpanded
         })
@@ -228,7 +232,13 @@ Page {
     Component.onCompleted: reload()
 
     onVisibleChanged: {
-        if (visible && app && app.pendingConversationsReload) {
+        if (!visible)
+            return
+        if (app && app.refreshConversationUnread && allItems && allItems.length > 0) {
+            allItems = app.refreshConversationUnread(allItems)
+            applyFilter()
+        }
+        if (app && app.pendingConversationsReload) {
             app.pendingConversationsReload = false
             reload()
         }
@@ -321,6 +331,7 @@ Page {
                     isIm: model.isIm
                     isPrivate: model.isPrivate
                     avatarUrl: model.avatarUrl || ""
+                    hasUnread: model.hasUnread
                     onClicked: {
                         pageStack.push(Qt.resolvedUrl("ChatPage.qml"), {
                             app: conversationsPage.app,
