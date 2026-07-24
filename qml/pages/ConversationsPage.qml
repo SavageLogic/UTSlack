@@ -175,6 +175,53 @@ Page {
                       dmsExpanded, showAllDms)
     }
 
+    // Update bold/unread dots without rebuilding the list (keeps scroll position).
+    function patchUnreadFromItems(items) {
+        allItems = items || []
+        var unreadById = {}
+        for (var i = 0; i < allItems.length; i++) {
+            var it = allItems[i]
+            if (it && it.id)
+                unreadById[it.id] = !!it.hasUnread
+        }
+        for (var r = 0; r < conversationModel.count; r++) {
+            if (conversationModel.get(r).rowType !== "item")
+                continue
+            var id = conversationModel.get(r).convId
+            if (unreadById.hasOwnProperty(id))
+                conversationModel.setProperty(r, "hasUnread", unreadById[id])
+        }
+    }
+
+    // Full rebuild but restore the conversation that was near the top of the viewport.
+    function applyFilterPreserveScroll() {
+        var anchorId = ""
+        if (listView && conversationModel.count > 0) {
+            var idx = listView.indexAt(units.gu(1), listView.contentY + units.gu(2))
+            if (idx < 0 && listView.contentY <= units.gu(1))
+                idx = 0
+            if (idx >= 0 && idx < conversationModel.count) {
+                for (var probe = idx; probe < Math.min(idx + 5, conversationModel.count); probe++) {
+                    var row = conversationModel.get(probe)
+                    if (row && row.rowType === "item" && row.convId) {
+                        anchorId = row.convId
+                        break
+                    }
+                }
+            }
+        }
+        applyFilter()
+        if (!anchorId)
+            return
+        for (var i = 0; i < conversationModel.count; i++) {
+            if (conversationModel.get(i).rowType === "item"
+                    && conversationModel.get(i).convId === anchorId) {
+                listView.positionViewAtIndex(i, ListView.Beginning)
+                return
+            }
+        }
+    }
+
     function toggleSection(sectionId) {
         if (sectionId === "channels")
             channelsExpanded = !channelsExpanded
@@ -241,16 +288,27 @@ Page {
             return
         errorText = ""
         loading = true
-        app.loadConversations(function(ok, items, message) {
+        app.loadConversations(function(ok, items, message, meta) {
             loading = false
             if (!ok) {
                 errorText = message || i18n.tr("Failed to load conversations")
-                allItems = []
-                conversationModel.clear()
+                // Keep existing list if we already painted from cache
+                if (!allItems || allItems.length === 0) {
+                    allItems = []
+                    conversationModel.clear()
+                }
+                return
+            }
+            meta = meta || {}
+            if (meta.mode === "unread") {
+                conversationsPage.patchUnreadFromItems(items || [])
                 return
             }
             allItems = items || []
-            applyFilter()
+            if (meta.mode === "paint" || conversationModel.count === 0)
+                conversationsPage.applyFilter()
+            else
+                conversationsPage.applyFilterPreserveScroll()
         })
     }
 
@@ -259,7 +317,7 @@ Page {
     function syncUnreadFromStorage() {
         if (app && app.refreshConversationUnread && allItems && allItems.length > 0) {
             allItems = app.refreshConversationUnread(allItems)
-            applyFilter()
+            conversationsPage.patchUnreadFromItems(allItems)
         }
     }
 

@@ -302,6 +302,7 @@ MainView {
 
     function logout() {
         Storage.clearToken()
+        Storage.clearAllCaches()
         Slack.setToken("")
         Slack.clearCache()
         Notify.setConversations([])
@@ -328,37 +329,76 @@ MainView {
     }
 
     function loadConversations(callback) {
-        Slack.usersListAll(function(usersRes) {
-            Slack.conversationsListAll(function(res) {
-                if (!res || !res.ok) {
-                    callback(false, [], (res && (res.message || res.error)) || i18n.tr("API error"))
-                    return
-                }
-                lastRawChannels = res.channels || []
-                var items = Models.normalizeConversations(lastRawChannels)
-                var groups = Models.splitConversationGroups(items)
+        if (!callback)
+            callback = function() {}
 
-                Slack.filterItemsWithMessages(groups.dms, function(dmsWithMessages) {
-                    var merged = (groups.channels || []).concat(dmsWithMessages || [])
-                    merged.sort(function(a, b) {
-                        if (a.sortKey < b.sortKey)
-                            return -1
-                        if (a.sortKey > b.sortKey)
-                            return 1
-                        return 0
-                    })
-                    // Show list immediately, then apply Slack last_read / unread_count
-                    updateNotifyWatchList(merged)
-                    callback(true, merged, "")
-                    Slack.enrichItemsWithSlackUnread(merged, function(withUnread) {
-                        for (var i = 0; i < withUnread.length; i++)
-                            withUnread[i].slackUnreadChecked = true
-                        updateNotifyWatchList(withUnread)
-                        callback(true, withUnread, "")
+        function sortMerged(merged) {
+            merged.sort(function(a, b) {
+                if (a.sortKey < b.sortKey)
+                    return -1
+                if (a.sortKey > b.sortKey)
+                    return 1
+                return 0
+            })
+            return merged
+        }
+
+        // keepUiOnError: don't wipe UI on failure after cache paint
+        // rosterOnlyUi: wait until unread enrich before replace callback (avoids unread flash)
+        function fullRefetch(keepUiOnError, rosterOnlyUi) {
+            Slack.usersListAll(function(usersRes) {
+                Slack.conversationsListAll(function(res) {
+                    if (!res || !res.ok) {
+                        if (!keepUiOnError)
+                            callback(false, [], (res && (res.message || res.error)) || i18n.tr("API error"))
+                        return
+                    }
+                    lastRawChannels = res.channels || []
+                    var items = Models.normalizeConversations(lastRawChannels)
+                    var groups = Models.splitConversationGroups(items)
+
+                    Slack.filterItemsWithMessages(groups.dms, function(dmsWithMessages) {
+                        var merged = sortMerged((groups.channels || []).concat(dmsWithMessages || []))
+                        updateNotifyWatchList(merged)
+                        // Cold start: show roster ASAP. Warm cache: skip this so unread
+                        // indicators don't disappear between list fetch and enrich.
+                        if (!rosterOnlyUi)
+                            callback(true, merged, "", { mode: "replace" })
+                        Slack.enrichItemsWithSlackUnread(merged, function(withUnread) {
+                            for (var i = 0; i < withUnread.length; i++)
+                                withUnread[i].slackUnreadChecked = true
+                            updateNotifyWatchList(withUnread)
+                            Storage.setConversationsCache(withUnread)
+                            callback(true, withUnread, "", {
+                                mode: rosterOnlyUi ? "replace" : "unread"
+                            })
+                        })
                     })
                 })
             })
-        })
+        }
+
+        // Phase 1: instant paint from cache
+        var cached = Storage.getConversationsCache()
+        if (cached && cached.items && cached.items.length > 0) {
+            var phase1 = Storage.cloneConversationItems(cached.items)
+            updateNotifyWatchList(phase1)
+            callback(true, phase1, "", { mode: "paint" })
+
+            // Phase 2: activity check — unread-only UI update (no list rebuild)
+            var phase2 = Storage.cloneConversationItems(cached.items)
+            Slack.enrichItemsWithSlackUnread(phase2, function(withUnread) {
+                for (var j = 0; j < withUnread.length; j++)
+                    withUnread[j].slackUnreadChecked = true
+                updateNotifyWatchList(withUnread)
+                callback(true, withUnread, "", { mode: "unread" })
+                // Phase 3: full roster; single replace after enrich
+                fullRefetch(true, true)
+            })
+            return
+        }
+
+        fullRefetch(false, false)
     }
 
     function loadPickerData(callback) {
@@ -763,6 +803,7 @@ MainView {
         })
         Notify.loadPrefs()
         notificationsEnabled = Notify.isEnabled()
+        Storage.purgeExpiredCache()
 
         var token = Storage.getToken()
         if (token && token.length > 0) {
@@ -774,6 +815,7 @@ MainView {
                     showConversations()
                 } else {
                     Storage.clearToken()
+                    Storage.clearAllCaches()
                     pageStack.push(Qt.resolvedUrl("pages/LoginPage.qml"), { app: root })
                 }
             })

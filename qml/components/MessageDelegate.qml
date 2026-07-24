@@ -272,6 +272,7 @@ ListItem {
                     mimetype: modelData.mimetype || "image/jpeg"
                     needsAuth: modelData.needsAuth !== false
                     title: modelData.name || ""
+                    fileId: modelData.id || ""
                     onOpenRequested: root.imageOpenRequested(imageInfo())
                     onDownloadRequested: root.imageDownloadRequested(imageInfo())
                     onCopyRequested: root.imageCopyRequested(imageInfo())

@@ -497,7 +497,7 @@ function usersListAll(callback) {
 function conversationsHistory(channelId, options, callback) {
     var args = {
         channel: channelId,
-        limit: (options && options.limit) ? options.limit : 50
+        limit: (options && options.limit) ? options.limit : 25
     }
     if (options && options.oldest)
         args.oldest = options.oldest
@@ -514,7 +514,7 @@ function conversationsReplies(channelId, threadTs, options, callback) {
     var args = {
         channel: channelId,
         ts: threadTs,
-        limit: (options && options.limit) ? options.limit : 50
+        limit: (options && options.limit) ? options.limit : 25
     }
     if (options && options.oldest)
         args.oldest = options.oldest

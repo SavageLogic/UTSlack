@@ -1,7 +1,9 @@
 import QtQuick 2.7
 import Lomiri.Components 1.3
 import Lomiri.Components.Popups 1.3
+import Qt.labs.platform 1.0 as Labs
 import "../js/SlackClient.js" as Slack
+import "../js/Storage.js" as Storage
 
 Item {
     id: root
@@ -21,14 +23,34 @@ Item {
     property string mimetype: "image/jpeg"
     property bool needsAuth: true
     property string title: ""
+    property string fileId: ""
 
     property string loadedSource: ""
     property bool failed: false
     property int loadSeq: 0
+    property string pendingPersistKey: ""
+    property string pendingPersistDataUrl: ""
 
     signal openRequested()
     signal downloadRequested()
     signal copyRequested()
+
+    function cacheDir() {
+        try {
+            var p = Labs.StandardPaths.writableLocation(Labs.StandardPaths.CacheLocation)
+            if (p && ("" + p).length > 0)
+                return ("" + p).replace(/\/$/, "")
+        } catch (e) {}
+        return "/tmp"
+    }
+
+    function cacheKeyFor(url) {
+        return Storage.mediaCacheKey(root.fileId, url)
+    }
+
+    function diskPathForKey(key) {
+        return cacheDir() + "/media_" + key + ".png"
+    }
 
     function imageInfo() {
         return {
@@ -39,6 +61,23 @@ Item {
             name: root.title,
             loadedSource: root.loadedSource
         }
+    }
+
+    function tryDiskCache(url) {
+        var key = cacheKeyFor(url)
+        var entry = Storage.getMediaCacheEntry(key)
+        if (!entry || !entry.path)
+            return false
+        loadedSource = entry.path
+        return true
+    }
+
+    function persistDataUrl(key, dataUrl) {
+        if (!key || !dataUrl || ("" + dataUrl).indexOf("data:") !== 0)
+            return
+        pendingPersistKey = key
+        pendingPersistDataUrl = dataUrl
+        persistImage.source = dataUrl
     }
 
     function startLoad() {
@@ -52,21 +91,30 @@ Item {
             return
         }
         if (!root.needsAuth && url.indexOf("http") === 0) {
+            if (tryDiskCache(url))
+                return
             loadedSource = url
             return
         }
+        if (tryDiskCache(url))
+            return
+
         Slack.fetchImageAsDataUrl(url, root.mimetype, function(dataUrl) {
             if (seq !== root.loadSeq)
                 return
             if (!dataUrl) {
                 if (root.imageUrl && root.imageUrl !== url) {
+                    if (tryDiskCache(root.imageUrl))
+                        return
                     Slack.fetchImageAsDataUrl(root.imageUrl, root.mimetype, function(dataUrl2) {
                         if (seq !== root.loadSeq)
                             return
-                        if (dataUrl2)
+                        if (dataUrl2) {
                             loadedSource = dataUrl2
-                        else
+                            persistDataUrl(cacheKeyFor(root.imageUrl), dataUrl2)
+                        } else {
                             failed = true
+                        }
                     })
                 } else {
                     failed = true
@@ -74,12 +122,50 @@ Item {
                 return
             }
             loadedSource = dataUrl
+            persistDataUrl(cacheKeyFor(url), dataUrl)
         })
     }
 
     Component.onCompleted: startLoad()
     onImageUrlChanged: startLoad()
     onThumbUrlChanged: startLoad()
+    onFileIdChanged: startLoad()
+
+    // Offscreen helper to write data: images into CacheLocation/media
+    Image {
+        id: persistImage
+        width: 1
+        height: 1
+        visible: false
+        asynchronous: true
+        cache: false
+        onStatusChanged: {
+            if (status !== Image.Ready)
+                return
+            var key = root.pendingPersistKey
+            if (!key)
+                return
+            var path = diskPathForKey(key)
+            persistImage.grabToImage(function(result) {
+                root.pendingPersistKey = ""
+                root.pendingPersistDataUrl = ""
+                persistImage.source = ""
+                if (!result)
+                    return
+                var ok = false
+                try {
+                    ok = result.saveToFile(path)
+                } catch (e) {
+                    console.log("[media-cache] save failed", e)
+                }
+                if (!ok)
+                    return
+                var fileUrl = path.indexOf("file:") === 0 ? path : ("file://" + path)
+                Storage.setMediaCacheEntry(key, fileUrl)
+                // Prefer disk path next time; keep current data: display as-is
+            })
+        }
+    }
 
     ActivityIndicator {
         id: busy
@@ -114,8 +200,31 @@ Item {
         asynchronous: true
         cache: true
         onStatusChanged: {
-            if (status === Image.Error && root.loadedSource.length > 0)
+            if (status === Image.Error && root.loadedSource.length > 0) {
+                // Stale disk entry — drop and refetch
+                if (("" + root.loadedSource).indexOf("file:") === 0) {
+                    var key = cacheKeyFor(root.thumbUrl || root.imageUrl)
+                    Storage.removeMediaCacheEntry(key)
+                    if (root.needsAuth || ("" + root.loadedSource).indexOf("file:") === 0) {
+                        root.loadedSource = ""
+                        var seq = root.loadSeq
+                        var url = root.thumbUrl || root.imageUrl
+                        Slack.fetchImageAsDataUrl(url, root.mimetype, function(dataUrl) {
+                            if (seq !== root.loadSeq)
+                                return
+                            if (dataUrl) {
+                                root.failed = false
+                                root.loadedSource = dataUrl
+                                root.persistDataUrl(key, dataUrl)
+                            } else {
+                                root.failed = true
+                            }
+                        })
+                        return
+                    }
+                }
                 root.failed = true
+            }
         }
 
         MouseArea {

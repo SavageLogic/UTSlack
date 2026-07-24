@@ -4,7 +4,9 @@
 var DB_NAME = "utslack"
 var DB_VERSION = "1.0"
 var DB_DESC = "UTSlack settings"
-var DB_SIZE = 100000
+var DB_SIZE = 5000000
+
+var CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
 function _db() {
     return Sql.LocalStorage.openDatabaseSync(DB_NAME, DB_VERSION, DB_DESC, DB_SIZE)
@@ -13,6 +15,9 @@ function _db() {
 function _ensure() {
     _db().transaction(function(tx) {
         tx.executeSql("CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT)")
+        tx.executeSql(
+            "CREATE TABLE IF NOT EXISTS media_cache(key TEXT PRIMARY KEY, path TEXT, cachedAt INTEGER)"
+        )
     })
 }
 
@@ -34,6 +39,13 @@ function set(key, value) {
             "INSERT OR REPLACE INTO settings(key, value) VALUES(?, ?)",
             [key, value === undefined || value === null ? "" : ("" + value)]
         )
+    })
+}
+
+function remove(key) {
+    _ensure()
+    _db().transaction(function(tx) {
+        tx.executeSql("DELETE FROM settings WHERE key = ?", [key])
     })
 }
 
@@ -218,4 +230,179 @@ function muteUntilTomorrowMs() {
 
 function muteUntilOneHourMs() {
     return Date.now() + (60 * 60 * 1000)
+}
+
+// --- Conversations list cache (7-day TTL) ---
+
+function _stripConversationForCache(item) {
+    if (!item)
+        return null
+    return {
+        id: item.id || "",
+        name: item.name || "",
+        title: item.title || "",
+        subtitle: item.subtitle || "",
+        sortKey: item.sortKey || "",
+        isIm: !!item.isIm,
+        isMpim: !!item.isMpim,
+        isPrivate: !!item.isPrivate,
+        isChannel: !!item.isChannel,
+        userId: item.userId || "",
+        avatarUrl: item.avatarUrl || "",
+        lastActivityTs: item.lastActivityTs || 0,
+        slackUnreadCount: item.slackUnreadCount || 0,
+        hasUnread: !!item.hasUnread,
+        slackUnreadChecked: !!item.slackUnreadChecked
+    }
+}
+
+function getConversationsCache(maxAgeMs) {
+    var maxAge = (maxAgeMs === undefined || maxAgeMs === null) ? CACHE_TTL_MS : maxAgeMs
+    var raw = get("conversationsCache", "")
+    if (!raw)
+        return null
+    try {
+        var parsed = JSON.parse(raw)
+        if (!parsed || !parsed.items || !parsed.cachedAt)
+            return null
+        if (Date.now() - Number(parsed.cachedAt) > maxAge)
+            return null
+        return {
+            cachedAt: Number(parsed.cachedAt),
+            items: parsed.items || []
+        }
+    } catch (e) {
+        return null
+    }
+}
+
+function setConversationsCache(items) {
+    var list = []
+    var src = items || []
+    for (var i = 0; i < src.length; i++) {
+        var row = _stripConversationForCache(src[i])
+        if (row && row.id)
+            list.push(row)
+    }
+    try {
+        set("conversationsCache", JSON.stringify({
+            cachedAt: Date.now(),
+            items: list
+        }))
+    } catch (e) {
+        console.log("[cache] conversations write failed", e)
+    }
+}
+
+function clearConversationsCache() {
+    remove("conversationsCache")
+}
+
+function cloneConversationItems(items) {
+    var out = []
+    var src = items || []
+    for (var i = 0; i < src.length; i++) {
+        var row = _stripConversationForCache(src[i])
+        if (row)
+            out.push(row)
+    }
+    return out
+}
+
+// --- Media disk index (7-day TTL); files live under CacheLocation/media/ ---
+
+function mediaCacheKey(fileId, url) {
+    if (fileId && ("" + fileId).length > 0)
+        return "f_" + ("" + fileId).replace(/[^A-Za-z0-9_-]/g, "_")
+    var u = "" + (url || "")
+    var hash = 0
+    for (var i = 0; i < u.length; i++)
+        hash = ((hash << 5) - hash) + u.charCodeAt(i) | 0
+    return "u_" + (hash >>> 0).toString(16)
+}
+
+function getMediaCacheEntry(key, maxAgeMs) {
+    if (!key)
+        return null
+    var maxAge = (maxAgeMs === undefined || maxAgeMs === null) ? CACHE_TTL_MS : maxAgeMs
+    _ensure()
+    var entry = null
+    _db().readTransaction(function(tx) {
+        var rs = tx.executeSql(
+            "SELECT key, path, cachedAt FROM media_cache WHERE key = ?",
+            [key]
+        )
+        if (rs.rows.length > 0) {
+            var row = rs.rows.item(0)
+            entry = {
+                key: row.key,
+                path: row.path || "",
+                cachedAt: Number(row.cachedAt) || 0
+            }
+        }
+    })
+    if (!entry || !entry.path)
+        return null
+    if (Date.now() - entry.cachedAt > maxAge) {
+        removeMediaCacheEntry(key)
+        return null
+    }
+    return entry
+}
+
+function setMediaCacheEntry(key, path) {
+    if (!key || !path)
+        return
+    _ensure()
+    _db().transaction(function(tx) {
+        tx.executeSql(
+            "INSERT OR REPLACE INTO media_cache(key, path, cachedAt) VALUES(?, ?, ?)",
+            [key, "" + path, Date.now()]
+        )
+    })
+}
+
+function removeMediaCacheEntry(key) {
+    if (!key)
+        return
+    _ensure()
+    _db().transaction(function(tx) {
+        tx.executeSql("DELETE FROM media_cache WHERE key = ?", [key])
+    })
+}
+
+function purgeExpiredMediaCache(maxAgeMs) {
+    var maxAge = (maxAgeMs === undefined || maxAgeMs === null) ? CACHE_TTL_MS : maxAgeMs
+    var cutoff = Date.now() - maxAge
+    _ensure()
+    _db().transaction(function(tx) {
+        tx.executeSql("DELETE FROM media_cache WHERE cachedAt < ?", [cutoff])
+    })
+}
+
+function clearMediaCacheIndex() {
+    _ensure()
+    _db().transaction(function(tx) {
+        tx.executeSql("DELETE FROM media_cache")
+    })
+}
+
+function purgeExpiredCache(maxAgeMs) {
+    var maxAge = (maxAgeMs === undefined || maxAgeMs === null) ? CACHE_TTL_MS : maxAgeMs
+    var conv = get("conversationsCache", "")
+    if (conv) {
+        try {
+            var parsed = JSON.parse(conv)
+            if (!parsed || !parsed.cachedAt || Date.now() - Number(parsed.cachedAt) > maxAge)
+                clearConversationsCache()
+        } catch (e) {
+            clearConversationsCache()
+        }
+    }
+    purgeExpiredMediaCache(maxAge)
+}
+
+function clearAllCaches() {
+    clearConversationsCache()
+    clearMediaCacheIndex()
 }

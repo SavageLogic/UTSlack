@@ -19,6 +19,9 @@ Page {
     property bool sending: false
     property string errorText: ""
     property string newestTs: ""
+    property string oldestTs: ""
+    property bool loadingOlder: false
+    property bool hasMoreOlder: true
     property bool activePolling: true
 
     readonly property string headerSubtitle: {
@@ -56,6 +59,8 @@ Page {
         if (replace) {
             messageModel.clear()
             newestTs = ""
+            oldestTs = ""
+            hasMoreOlder = true
         }
         var added = 0
         for (var i = 0; i < items.length; i++) {
@@ -88,10 +93,86 @@ Page {
             added++
             if (!newestTs || m.ts > newestTs)
                 newestTs = m.ts
+            if (!oldestTs || m.ts < oldestTs)
+                oldestTs = m.ts
         }
+        if (replace)
+            hasMoreOlder = (items || []).length >= 25
         // Only auto-scroll on full reload or when new messages were actually added
         if (replace || added > 0)
             threadPage.scrollToLatest(replace)
+    }
+
+    function prependOlderMessages(items) {
+        var list = items || []
+        if (list.length === 0) {
+            hasMoreOlder = false
+            return
+        }
+        var anchorTs = messageModel.count > 0 ? messageModel.get(0).ts : ""
+        var added = 0
+        for (var i = 0; i < list.length; i++) {
+            var m = list[i]
+            var exists = false
+            for (var j = 0; j < messageModel.count; j++) {
+                if (messageModel.get(j).ts === m.ts) {
+                    exists = true
+                    break
+                }
+            }
+            if (exists)
+                continue
+            messageModel.insert(added, {
+                ts: m.ts,
+                userId: m.userId,
+                author: m.author,
+                avatarUrl: m.avatarUrl || "",
+                text: m.text,
+                plainText: m.plainText || "",
+                imagesJson: m.imagesJson || "[]",
+                reactionsJson: m.reactionsJson || "[]",
+                timeLabel: m.timeLabel,
+                isSelf: app && app.userId && m.userId === app.userId,
+                replyCount: m.replyCount || 0,
+                threadTs: m.threadTs || ""
+            })
+            added++
+            if (!oldestTs || m.ts < oldestTs)
+                oldestTs = m.ts
+            if (!newestTs || m.ts > newestTs)
+                newestTs = m.ts
+        }
+        hasMoreOlder = list.length >= 25
+        if (added > 0 && anchorTs) {
+            for (var k = 0; k < messageModel.count; k++) {
+                if (messageModel.get(k).ts === anchorTs) {
+                    listView.positionViewAtIndex(k, ListView.Beginning)
+                    break
+                }
+            }
+        }
+    }
+
+    function loadOlderHistory() {
+        if (!channelId || !threadTs || loadingOlder || !hasMoreOlder || !oldestTs || !app)
+            return
+        loadingOlder = true
+        app.loadThread(channelId, threadTs, {
+            latest: oldestTs,
+            inclusive: false,
+            limit: 25
+        }, function(ok, items, message) {
+            loadingOlder = false
+            if (!ok) {
+                errorText = message || i18n.tr("Failed to load older replies")
+                return
+            }
+            var list = items || []
+            if (list.length === 0)
+                hasMoreOlder = false
+            else
+                threadPage.prependOlderMessages(list)
+        })
     }
 
     function scrollToLatest(forceReliable) {
@@ -436,6 +517,27 @@ Page {
         model: messageModel
         spacing: 0
         onMovementStarted: threadPage.dismissKeyboard()
+        onAtYBeginningChanged: {
+            if (atYBeginning && !threadPage.loading && messageModel.count > 0)
+                loadOlderDebounce.restart()
+        }
+
+        header: Item {
+            width: listView.width
+            height: threadPage.loadingOlder ? units.gu(4) : 0
+            ActivityIndicator {
+                anchors.centerIn: parent
+                running: threadPage.loadingOlder
+                visible: running
+            }
+        }
+
+        Timer {
+            id: loadOlderDebounce
+            interval: 120
+            repeat: false
+            onTriggered: threadPage.loadOlderHistory()
+        }
 
         delegate: MessageDelegate {
             width: listView.width
