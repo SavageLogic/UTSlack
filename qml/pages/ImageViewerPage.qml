@@ -3,6 +3,7 @@ import Lomiri.Components 1.3
 import Lomiri.Components.Popups 1.3
 import "../components"
 import "../js/SlackClient.js" as Slack
+import "../js/FlickPhysics.js" as FlickPhysics
 
 Page {
     id: viewerPage
@@ -169,6 +170,7 @@ Page {
             contentHeight: height
             clip: true
             interactive: image.paintedWidth > width || image.paintedHeight > height
+            Component.onCompleted: FlickPhysics.configure(flick, units.gridUnit)
 
             PinchArea {
                 width: Math.max(flick.contentWidth, flick.width)

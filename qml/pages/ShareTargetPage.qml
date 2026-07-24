@@ -2,6 +2,7 @@ import QtQuick 2.7
 import Lomiri.Components 1.3
 import Lomiri.Content 1.3
 import "../components"
+import "../js/FlickPhysics.js" as FlickPhysics
 
 Page {
     id: sharePage
@@ -259,6 +260,7 @@ Page {
             clip: true
             model: listModel
             visible: !loading && listModel.count > 0
+            Component.onCompleted: FlickPhysics.configure(listView, units.gridUnit)
 
             delegate: ListItem {
                 height: layout.height + (divider.visible ? divider.height : 0)

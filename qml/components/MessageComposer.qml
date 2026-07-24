@@ -1,5 +1,6 @@
 import QtQuick 2.7
 import Lomiri.Components 1.3
+import "../js/FlickPhysics.js" as FlickPhysics
 
 Rectangle {
     id: root
@@ -163,6 +164,7 @@ Rectangle {
                 anchors.fill: parent
                 model: mentionModel
                 clip: true
+                Component.onCompleted: FlickPhysics.configure(mentionList, units.gridUnit)
                 delegate: ListItem {
                     height: units.gu(5)
                     divider.visible: true

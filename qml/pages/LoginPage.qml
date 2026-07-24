@@ -1,5 +1,6 @@
 import QtQuick 2.7
 import Lomiri.Components 1.3
+import "../js/FlickPhysics.js" as FlickPhysics
 
 Page {
     id: loginPage
@@ -41,6 +42,7 @@ Page {
         }
         contentHeight: contentCol.height + units.gu(4)
         clip: true
+        Component.onCompleted: FlickPhysics.configure(flick, units.gridUnit)
 
         Column {
             id: contentCol

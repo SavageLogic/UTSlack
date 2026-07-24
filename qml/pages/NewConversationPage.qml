@@ -1,6 +1,7 @@
 import QtQuick 2.7
 import Lomiri.Components 1.3
 import "../components"
+import "../js/FlickPhysics.js" as FlickPhysics
 
 Page {
     id: newConversationPage
@@ -252,6 +253,7 @@ Page {
             clip: true
             model: pickerModel
             visible: !loading && !opening && pickerModel.count > 0
+            Component.onCompleted: FlickPhysics.configure(listView, units.gridUnit)
 
             delegate: ConversationDelegate {
                 width: listView.width

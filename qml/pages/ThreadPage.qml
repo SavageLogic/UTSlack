@@ -4,6 +4,7 @@ import Lomiri.Components.Popups 1.3
 import Lomiri.Content 1.3
 import "../components"
 import "../js/Models.js" as Models
+import "../js/FlickPhysics.js" as FlickPhysics
 
 Page {
     id: threadPage
@@ -516,6 +517,7 @@ Page {
         clip: true
         model: messageModel
         spacing: 0
+        Component.onCompleted: FlickPhysics.configure(listView, units.gridUnit)
         onMovementStarted: threadPage.dismissKeyboard()
         onAtYBeginningChanged: {
             if (atYBeginning && !threadPage.loading && messageModel.count > 0)

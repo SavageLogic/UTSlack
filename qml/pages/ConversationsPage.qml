@@ -4,6 +4,7 @@ import Lomiri.Components.Popups 1.3
 import "../components"
 import "../js/Models.js" as Models
 import "../js/Storage.js" as Storage
+import "../js/FlickPhysics.js" as FlickPhysics
 
 Page {
     id: conversationsPage
@@ -672,6 +673,7 @@ Page {
             clip: true
             model: conversationModel
             visible: conversationModel.count > 0
+            Component.onCompleted: FlickPhysics.configure(listView, units.gridUnit)
 
             delegate: Item {
                 width: listView.width

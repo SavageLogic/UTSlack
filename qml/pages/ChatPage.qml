@@ -4,6 +4,7 @@ import Lomiri.Components.Popups 1.3
 import Lomiri.Content 1.3
 import "../components"
 import "../js/Models.js" as Models
+import "../js/FlickPhysics.js" as FlickPhysics
 
 Page {
     id: chatPage
@@ -678,6 +679,7 @@ Page {
         model: messageModel
         spacing: 0
         visible: !searchMode
+        Component.onCompleted: FlickPhysics.configure(listView, units.gridUnit)
         onMovementStarted: chatPage.dismissKeyboard()
         onAtYBeginningChanged: {
             if (atYBeginning && !searchMode && !chatPage.loading && messageModel.count > 0)
@@ -769,6 +771,7 @@ Page {
         clip: true
         model: searchModel
         visible: searchMode
+        Component.onCompleted: FlickPhysics.configure(searchList, units.gridUnit)
         onMovementStarted: chatPage.dismissKeyboard()
         delegate: ListItem {
             height: searchLayout.height + (divider.visible ? divider.height : 0)
