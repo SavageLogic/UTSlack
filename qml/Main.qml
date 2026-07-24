@@ -525,6 +525,55 @@ MainView {
         }, options || {})
     }
 
+    function deleteMessage(channelId, ts, callback) {
+        if (!callback)
+            callback = function() {}
+        if (!channelId || !ts) {
+            callback(false, i18n.tr("Couldn't delete message"))
+            return
+        }
+        Slack.chatDelete(channelId, ts, function(res) {
+            if (!res || !res.ok) {
+                var msg = (res && (res.message || res.error)) || i18n.tr("Couldn't delete message")
+                if (res && res.error === "missing_scope")
+                    msg = i18n.tr("Add chat:write user scope, reinstall the Slack app, and paste a new token.")
+                else if (res && res.error === "cant_delete_message")
+                    msg = i18n.tr("This message can't be deleted")
+                else if (res && res.error === "message_not_found")
+                    msg = i18n.tr("Message already deleted")
+                callback(false, msg)
+                return
+            }
+            callback(true, "")
+        })
+    }
+
+    function updateMessage(channelId, ts, text, callback) {
+        if (!callback)
+            callback = function() {}
+        if (!channelId || !ts) {
+            callback(false, i18n.tr("Couldn't update message"))
+            return
+        }
+        var encoded = Slack.encodeTextMentions(text || "")
+        Slack.chatUpdate(channelId, ts, encoded, function(res) {
+            if (!res || !res.ok) {
+                var msg = (res && (res.message || res.error)) || i18n.tr("Couldn't update message")
+                if (res && res.error === "missing_scope")
+                    msg = i18n.tr("Add chat:write user scope, reinstall the Slack app, and paste a new token.")
+                else if (res && res.error === "cant_update_message")
+                    msg = i18n.tr("This message can't be edited")
+                else if (res && res.error === "message_not_found")
+                    msg = i18n.tr("Message not found")
+                else if (res && res.error === "edit_window_closed")
+                    msg = i18n.tr("Edit window has closed for this message")
+                callback(false, msg)
+                return
+            }
+            callback(true, "")
+        })
+    }
+
     function uploadFile(channelId, fileUrl, options, callback) {
         var opts = options || {}
         if (opts.initialComment)

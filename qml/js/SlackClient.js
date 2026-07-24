@@ -552,6 +552,21 @@ function chatPostMessage(channelId, text, callback, options) {
     api("chat.postMessage", args, callback)
 }
 
+function chatDelete(channelId, ts, callback) {
+    api("chat.delete", {
+        channel: channelId,
+        ts: ts
+    }, callback)
+}
+
+function chatUpdate(channelId, ts, text, callback) {
+    api("chat.update", {
+        channel: channelId,
+        ts: ts,
+        text: text
+    }, callback)
+}
+
 function reactionsAdd(channelId, ts, name, callback) {
     api("reactions.add", {
         channel: channelId,

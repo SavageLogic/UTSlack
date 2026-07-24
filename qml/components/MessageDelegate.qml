@@ -3,10 +3,11 @@ import Lomiri.Components 1.3
 import Lomiri.Components.Popups 1.3
 import "../js/Models.js" as Models
 
-Item {
+ListItem {
     id: root
     width: parent ? parent.width : units.gu(40)
     height: cell.height + units.gu(1.5)
+    divider.visible: false
 
     property string ts: ""
     property string author: ""
@@ -25,6 +26,32 @@ Item {
     property var reactionList: []
     property bool childPressed: false
     property bool menuOpen: false
+
+    ListItemActions {
+        id: deleteActions
+        actions: [
+            Action {
+                iconName: "delete"
+                text: i18n.tr("Delete")
+                onTriggered: root.deleteRequested(root.ts)
+            }
+        ]
+    }
+
+    ListItemActions {
+        id: editActions
+        actions: [
+            Action {
+                iconName: "edit"
+                text: i18n.tr("Edit")
+                onTriggered: root.editRequested(root.ts, root.copyPayload)
+            }
+        ]
+    }
+
+    // LTR swipe → Delete; RTL swipe → Edit (own messages only).
+    leadingActions: root.isSelf && root.ts.length > 0 ? deleteActions : null
+    trailingActions: root.isSelf && root.ts.length > 0 ? editActions : null
 
     onImagesJsonChanged: parseImages()
     onReactionsJsonChanged: parseReactions()
@@ -97,7 +124,7 @@ Item {
             .replace(/&quot;/g, "\"")
             .trim()
     }
-    readonly property bool highlighted: pressArea.pressed || root.childPressed || root.menuOpen
+    readonly property bool highlighted: root.pressed || root.childPressed || root.menuOpen
 
     signal imageOpenRequested(var imageInfo)
     signal imageDownloadRequested(var imageInfo)
@@ -106,6 +133,8 @@ Item {
     signal threadOpenRequested(string threadTs)
     signal reactionToggled(string ts, string name, bool currentlyMine)
     signal addReactionRequested(string ts)
+    signal deleteRequested(string ts)
+    signal editRequested(string ts, string plainText)
 
     function openCopyMenu(caller) {
         root.menuOpen = true
@@ -141,15 +170,11 @@ Item {
         root.childPressed = false
     }
 
+    onPressAndHold: root.openCopyMenu(root)
+
     Rectangle {
         anchors.fill: parent
         color: root.highlighted ? root.pressHighlight : "transparent"
-    }
-
-    MouseArea {
-        id: pressArea
-        anchors.fill: parent
-        onPressAndHold: root.openCopyMenu(root)
     }
 
     Row {

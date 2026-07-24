@@ -153,6 +153,10 @@ Page {
     }
 
     function sendMessage(text) {
+        if (composer.isEditing) {
+            updateEditedMessage(text)
+            return
+        }
         if (composer.hasPendingFile) {
             uploadPending(text)
             return
@@ -168,6 +172,30 @@ Page {
             composer.clear()
             loadHistory(true)
         }, { threadTs: threadTs })
+    }
+
+    function beginEditMessage(ts, plainText) {
+        if (!ts)
+            return
+        errorText = ""
+        composer.beginEdit(ts, plainText || "")
+    }
+
+    function updateEditedMessage(text) {
+        var ts = composer.editingTs
+        if (!app || !channelId || !ts)
+            return
+        sending = true
+        errorText = ""
+        app.updateMessage(channelId, ts, text, function(ok, message) {
+            sending = false
+            if (!ok) {
+                errorText = message || i18n.tr("Couldn't update message")
+                return
+            }
+            composer.clear()
+            loadHistory(true)
+        })
     }
 
     function uploadPending(caption) {
@@ -241,6 +269,21 @@ Page {
             return
         if (!app.copyTextToClipboard(value))
             errorText = i18n.tr("Couldn't copy message")
+    }
+
+    function deleteMessage(ts) {
+        if (!app || !channelId || !ts)
+            return
+        errorText = ""
+        app.deleteMessage(channelId, ts, function(ok, message) {
+            if (!ok) {
+                errorText = message || i18n.tr("Couldn't delete message")
+                return
+            }
+            var idx = findMessageIndex(ts)
+            if (idx >= 0)
+                messageModel.remove(idx)
+        })
     }
 
     function findMessageIndex(ts) {
@@ -372,6 +415,14 @@ Page {
         }
     }
 
+    Connections {
+        target: composer
+        onHeightChanged: {
+            if (Qt.inputMethod.visible)
+                threadPage.scrollToLatest(false)
+        }
+    }
+
     ListView {
         id: listView
         anchors {
@@ -402,6 +453,8 @@ Page {
             onImageDownloadRequested: threadPage.downloadImage(imageInfo)
             onImageCopyRequested: threadPage.copyImage(imageInfo)
             onCopyTextRequested: threadPage.copyMessageText(value)
+            onDeleteRequested: threadPage.deleteMessage(ts)
+            onEditRequested: threadPage.beginEditMessage(ts, plainText)
             onReactionToggled: threadPage.handleReactionToggle(ts, name, currentlyMine)
             onAddReactionRequested: threadPage.openReactionPicker(ts)
         }
