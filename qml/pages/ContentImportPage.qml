@@ -6,13 +6,16 @@ Page {
     id: pickerPage
     property var activeTransfer
     property int contentType: ContentType.Pictures
+    property string pageTitle: contentType === ContentType.Documents
+                               ? i18n.tr("Choose a file")
+                               : i18n.tr("Choose media")
 
     signal imported(string fileUrl)
     signal cancelled()
 
     header: PageHeader {
         id: header
-        title: i18n.tr("Choose media")
+        title: pickerPage.pageTitle
         leadingActionBar.actions: [
             Action {
                 iconName: "back"

@@ -1,7 +1,7 @@
 import QtQuick 2.7
 import Lomiri.Components 1.3
 import Lomiri.Components.Popups 1.3
-import QtQuick.Dialogs 1.3
+import Lomiri.Content 1.3
 import "../components"
 import "../js/Models.js" as Models
 
@@ -219,8 +219,10 @@ Page {
         })
     }
 
-    function openContentHub() {
-        var page = pageStack.push(Qt.resolvedUrl("ContentImportPage.qml"))
+    function openContentHub(contentType) {
+        var page = pageStack.push(Qt.resolvedUrl("ContentImportPage.qml"), {
+            contentType: contentType || ContentType.Pictures
+        })
         page.imported.connect(function(fileUrl) {
             composer.setPendingFile(fileUrl, basename(fileUrl))
         })
@@ -535,31 +537,14 @@ Page {
                 Action {
                     iconName: "image"
                     text: i18n.tr("Photo or video")
-                    onTriggered: threadPage.openContentHub()
+                    onTriggered: threadPage.openContentHub(ContentType.Pictures)
                 }
                 Action {
                     iconName: "document-open"
                     text: i18n.tr("Browse files…")
-                    onTriggered: fileDialog.open()
+                    onTriggered: threadPage.openContentHub(ContentType.Documents)
                 }
             }
-        }
-    }
-
-    FileDialog {
-        id: fileDialog
-        title: i18n.tr("Choose a file to upload")
-        selectExisting: true
-        selectMultiple: false
-        nameFilters: [
-            i18n.tr("Images (*.png *.jpg *.jpeg *.gif *.webp *.bmp)"),
-            i18n.tr("Videos (*.mp4 *.webm *.mov)"),
-            i18n.tr("All files (*)")
-        ]
-        onAccepted: {
-            var url = "" + fileDialog.fileUrl
-            if (url.length > 0)
-                composer.setPendingFile(url, threadPage.basename(url))
         }
     }
 }
