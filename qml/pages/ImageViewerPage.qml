@@ -169,37 +169,93 @@ Page {
             contentWidth: width
             contentHeight: height
             clip: true
-            interactive: image.paintedWidth > width || image.paintedHeight > height
+            boundsBehavior: Flickable.StopAtBounds
+            // Pan whenever zoomed (content larger than viewport)
+            interactive: contentWidth > width + 0.5 || contentHeight > height + 0.5
             Component.onCompleted: FlickPhysics.configure(flick, units.gridUnit)
 
+            function resetZoom() {
+                contentWidth = width
+                contentHeight = height
+                contentX = 0
+                contentY = 0
+            }
+
+            onWidthChanged: {
+                if (contentWidth <= width && contentHeight <= height)
+                    resetZoom()
+            }
+            onHeightChanged: {
+                if (contentWidth <= width && contentHeight <= height)
+                    resetZoom()
+            }
+
             PinchArea {
+                id: pinchArea
                 width: Math.max(flick.contentWidth, flick.width)
                 height: Math.max(flick.contentHeight, flick.height)
-                pinch.target: image
-                pinch.minimumScale: 1.0
-                pinch.maximumScale: 4.0
-                pinch.dragAxis: Pinch.XAndYAxis
 
-                onPinchFinished: {
-                    flick.returnToBounds()
+                property real initialWidth
+                property real initialHeight
+                readonly property real minScale: 1.0
+                readonly property real maxScale: 4.0
+
+                onPinchStarted: {
+                    initialWidth = flick.contentWidth
+                    initialHeight = flick.contentHeight
                 }
 
-                Image {
-                    id: image
-                    anchors.centerIn: parent
-                    width: flick.width
-                    height: flick.height
-                    fillMode: Image.PreserveAspectFit
-                    asynchronous: true
-                    cache: true
-                    source: viewerPage.displaySource
-                    visible: source.toString().length > 0 && !viewerPage.loading
+                onPinchUpdated: {
+                    // Keep the pinch midpoint under the fingers while panning
+                    flick.contentX += pinch.previousCenter.x - pinch.center.x
+                    flick.contentY += pinch.previousCenter.y - pinch.center.y
 
-                    MouseArea {
-                        anchors.fill: parent
-                        propagateComposedEvents: true
-                        onPressAndHold: PopupUtils.open(downloadPopover, image)
-                        // Single tap does not close — use header back (avoids fighting pinch)
+                    var nextW = initialWidth * pinch.scale
+                    var nextH = initialHeight * pinch.scale
+                    var minW = flick.width * minScale
+                    var minH = flick.height * minScale
+                    var maxW = flick.width * maxScale
+                    var maxH = flick.height * maxScale
+                    nextW = Math.max(minW, Math.min(maxW, nextW))
+                    nextH = Math.max(minH, Math.min(maxH, nextH))
+
+                    // Grow/shrink content around the pinch center so zoom isn't locked to mid-image
+                    flick.resizeContent(nextW, nextH, pinch.center)
+                }
+
+                onPinchFinished: {
+                    // Snap back if under-zoomed; otherwise clamp pan to bounds
+                    if (flick.contentWidth < flick.width || flick.contentHeight < flick.height)
+                        flick.resetZoom()
+                    else
+                        flick.returnToBounds()
+                }
+
+                Item {
+                    id: imageContainer
+                    width: flick.contentWidth
+                    height: flick.contentHeight
+
+                    Image {
+                        id: image
+                        anchors.centerIn: parent
+                        width: parent.width
+                        height: parent.height
+                        fillMode: Image.PreserveAspectFit
+                        asynchronous: true
+                        cache: true
+                        source: viewerPage.displaySource
+                        visible: source.toString().length > 0 && !viewerPage.loading
+                        onSourceChanged: flick.resetZoom()
+
+                        MouseArea {
+                            anchors.fill: parent
+                            // Steal vertical/horizontal drag only when zoomed so flick can pan
+                            propagateComposedEvents: true
+                            onPressAndHold: PopupUtils.open(downloadPopover, image)
+                            onDoubleClicked: flick.resetZoom()
+                            // Single tap does not close — use header back (avoids fighting pinch)
+                        }
                     }
                 }
             }
