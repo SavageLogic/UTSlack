@@ -1,5 +1,6 @@
 import QtQuick 2.7
 import Lomiri.Components 1.3
+import Lomiri.Components.Popups 1.3
 import Lomiri.Content 1.3
 import "../components"
 import "../js/FlickPhysics.js" as FlickPhysics
@@ -15,6 +16,8 @@ Page {
     property bool sending: false
     property string errorText: ""
     property var allItems: []
+    property string pendingChannelId: ""
+    property string pendingChannelTitle: ""
 
     header: PageHeader {
         id: header
@@ -142,6 +145,14 @@ Page {
         pageStack.pop()
     }
 
+    function confirmSendTo(channelId, title) {
+        if (sending || !payload || !channelId)
+            return
+        pendingChannelId = channelId
+        pendingChannelTitle = title || ""
+        PopupUtils.open(confirmShareDialog)
+    }
+
     function sendTo(channelId, title) {
         if (sending || !app || !payload || !channelId)
             return
@@ -191,6 +202,36 @@ Page {
     Component.onDestruction: {
         if (app)
             app.sharePageOpen = false
+    }
+
+    Component {
+        id: confirmShareDialog
+        Dialog {
+            id: dialogue
+            title: i18n.tr("Share to Slack?")
+            text: {
+                var dest = sharePage.pendingChannelTitle || i18n.tr("this conversation")
+                var what = sharePage.previewText
+                if (what.length > 80)
+                    what = what.substring(0, 77) + "…"
+                if (sharePage.payload && sharePage.payload.kind === "link")
+                    return i18n.tr("Send this link to %1?\n\n%2").arg(dest).arg(what)
+                return i18n.tr("Send this file to %1?\n\n%2").arg(dest).arg(what)
+            }
+
+            Button {
+                text: i18n.tr("Share")
+                color: theme.palette.normal.positive
+                onClicked: {
+                    PopupUtils.close(dialogue)
+                    sharePage.sendTo(sharePage.pendingChannelId, sharePage.pendingChannelTitle)
+                }
+            }
+            Button {
+                text: i18n.tr("Cancel")
+                onClicked: PopupUtils.close(dialogue)
+            }
+        }
     }
 
     Item {
@@ -265,7 +306,7 @@ Page {
             delegate: ListItem {
                 height: layout.height + (divider.visible ? divider.height : 0)
                 enabled: !sharePage.sending
-                onClicked: sharePage.sendTo(model.convId, model.title)
+                onClicked: sharePage.confirmSendTo(model.convId, model.title)
 
                 ListItemLayout {
                     id: layout
