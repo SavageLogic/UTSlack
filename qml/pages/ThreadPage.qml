@@ -391,6 +391,7 @@ Page {
             mimetype: info.mimetype || "image/jpeg",
             needsAuth: info.needsAuth !== false,
             title: info.name || "",
+            fileId: info.id || "",
             loadedSource: info.loadedSource || ""
         })
     }

@@ -311,14 +311,15 @@ function cloneConversationItems(items) {
 
 // --- Media disk index (7-day TTL); files live under CacheLocation/media/ ---
 
-function mediaCacheKey(fileId, url) {
+function mediaCacheKey(fileId, url, variant) {
+    var suffix = variant ? ("_" + ("" + variant).replace(/[^A-Za-z0-9_-]/g, "")) : ""
     if (fileId && ("" + fileId).length > 0)
-        return "f_" + ("" + fileId).replace(/[^A-Za-z0-9_-]/g, "_")
+        return "f_" + ("" + fileId).replace(/[^A-Za-z0-9_-]/g, "_") + suffix
     var u = "" + (url || "")
     var hash = 0
     for (var i = 0; i < u.length; i++)
         hash = ((hash << 5) - hash) + u.charCodeAt(i) | 0
-    return "u_" + (hash >>> 0).toString(16)
+    return "u_" + (hash >>> 0).toString(16) + suffix
 }
 
 function getMediaCacheEntry(key, maxAgeMs) {

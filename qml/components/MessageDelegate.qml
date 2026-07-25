@@ -133,12 +133,20 @@ ListItem {
     }
 
     readonly property bool dark: {
-        var n = "" + (theme && theme.name ? theme.name : "")
-        return n.indexOf("SuruDark") !== -1
+        // Prefer palette luminance — theme.name is unreliable across UT releases.
+        try {
+            var c = theme.palette.normal.background
+            var lum = (c.r * 0.299) + (c.g * 0.587) + (c.b * 0.114)
+            return lum < 0.45
+        } catch (e) {
+            var n = "" + (theme && theme.name ? theme.name : "")
+            return n.indexOf("SuruDark") !== -1 || n.indexOf("Dark") !== -1
+        }
     }
     readonly property color pressHighlight: theme.palette.highlighted.background
     readonly property color authorColor: dark ? "#C9A0CE" : theme.palette.normal.activity
-    readonly property color linkColor: dark ? "#7EB6FF" : theme.palette.normal.activity
+    // High-contrast link on near-black chat backgrounds (Suru activity is too dim)
+    readonly property color linkColor: dark ? "#A8D8FF" : "#0B5CAB"
     readonly property color chipMineBg: dark ? "#3D2A4A" : "#F4E8F5"
     readonly property color chipMineBorder: dark ? "#C9A0CE" : "#4A154B"
     readonly property bool hasText: root.text && root.text.length > 0 && root.text !== "<br/>"
@@ -317,7 +325,6 @@ ListItem {
             Repeater {
                 model: root.imageList
                 delegate: SlackImage {
-                    width: bodyCol.width
                     imageUrl: modelData.url || ""
                     thumbUrl: modelData.thumb || modelData.url || ""
                     mimetype: modelData.mimetype || "image/jpeg"

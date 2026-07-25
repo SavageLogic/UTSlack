@@ -90,7 +90,7 @@ function deepLinkForMessage(messageObj) {
 function sendPush(summary, body, tag, messageObj) {
     if (!_pushToken) {
         console.log("[notify] no push token yet")
-        return
+        return false
     }
     var expire = new Date()
     expire.setUTCMinutes(expire.getUTCMinutes() + 30)
@@ -124,8 +124,57 @@ function sendPush(summary, body, tag, messageObj) {
             return
         if (xhr.status < 200 || xhr.status >= 300)
             console.log("[notify] push failed", xhr.status, xhr.responseText)
+        else
+            console.log("[notify] push ok", xhr.status)
     }
     xhr.send(JSON.stringify(payload))
+    return true
+}
+
+function _firstConversation(wantDm) {
+    var cached = Storage.getConversationsCache(null)
+    var items = (cached && cached.items) ? cached.items : []
+    for (var i = 0; i < items.length; i++) {
+        var it = items[i]
+        if (!it || !it.id)
+            continue
+        var isDm = !!(it.isIm || it.isMpim)
+        if (wantDm && isDm)
+            return it
+        if (!wantDm && !isDm)
+            return it
+    }
+    return null
+}
+
+// Dev/test helper: fire a sample notification for a DM or channel.
+// kind: "dm" | "channel"
+// Returns { ok: bool, message: string }
+function sendTestNotification(kind) {
+    if (!_pushToken)
+        return { ok: false, message: "No push token yet" }
+    var wantDm = (kind === "dm")
+    var found = _firstConversation(wantDm)
+    if (!found)
+        return {
+            ok: false,
+            message: wantDm ? "No DM in conversations list" : "No channel in conversations list"
+        }
+    var channelId = found.id
+    var title = found.title || found.name || channelId
+    var body = wantDm
+        ? "Test DM notification from UTSlack"
+        : "Someone: Test channel notification from UTSlack"
+    var ts = "" + (Date.now() / 1000)
+    var ok = sendPush(title, body, "utslack-test-" + kind, {
+        channelId: channelId,
+        channelTitle: title,
+        ts: ts,
+        test: true
+    })
+    if (!ok)
+        return { ok: false, message: "Push send failed" }
+    return { ok: true, message: "Sent to “" + title + "”" }
 }
 
 function _messageMentionsSelf(msg) {

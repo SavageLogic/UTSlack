@@ -10,8 +10,14 @@ Item {
     visible: false
 
     readonly property bool dark: {
-        var n = "" + (theme && theme.name ? theme.name : "")
-        return n.indexOf("SuruDark") !== -1
+        try {
+            var c = theme.palette.normal.background
+            var lum = (c.r * 0.299) + (c.g * 0.587) + (c.b * 0.114)
+            return lum < 0.45
+        } catch (e) {
+            var n = "" + (theme && theme.name ? theme.name : "")
+            return n.indexOf("SuruDark") !== -1 || n.indexOf("Dark") !== -1
+        }
     }
 
     // Slack brand (intentional; works as accent on both themes)
@@ -25,9 +31,8 @@ Item {
     readonly property color positive: theme.palette.normal.positive
     readonly property color negative: theme.palette.normal.negative
     readonly property color activity: theme.palette.normal.activity
-    // Readable link accent on dark bubbles (SuruDark activity is too dark)
-    readonly property color link: dark ? "#7EB6FF" : theme.palette.normal.activity
-
+    // High-contrast link on dark backgrounds
+    readonly property color link: dark ? "#A8D8FF" : "#0B5CAB"
     readonly property color bubbleSelf: dark ? "#1B3D2F" : "#E8F5E9"
     readonly property color bubbleSelfBorder: dark ? "#2D6A4F" : "#C8E6C9"
     readonly property color bubbleOther: theme.palette.normal.foreground

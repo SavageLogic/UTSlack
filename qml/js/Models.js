@@ -861,9 +861,10 @@ function extractImages(message) {
                 || /\.(png|jpe?g|gif|webp|bmp)$/i.test(file.name || "")
         if (!isImage)
             continue
-        var thumb = file.thumb_480 || file.thumb_360 || file.thumb_720
-                || file.thumb_800 || file.thumb_160 || file.url_private
-        var full = file.url_private_download || file.url_private || thumb
+        var thumb = file.thumb_1024 || file.thumb_960 || file.thumb_800 || file.thumb_720
+                || file.thumb_480 || file.thumb_360 || file.thumb_160 || file.url_private
+        // Prefer url_private for display; download URL is for saving and can be heavier
+        var full = file.url_private || file.url_private_download || thumb
         pushImage({
             id: file.id || "",
             name: file.name || file.title || "image",
@@ -943,8 +944,8 @@ function _fileThumb(file) {
     if (!file)
         return ""
     // thumb_video is a boolean on Slack file objects — not a URL
-    return file.thumb_480 || file.thumb_360 || file.thumb_720
-            || file.thumb_800 || file.thumb_960 || file.thumb_160 || ""
+    return file.thumb_1024 || file.thumb_960 || file.thumb_800 || file.thumb_720
+            || file.thumb_480 || file.thumb_360 || file.thumb_160 || ""
 }
 
 // Non-image file attachments (video, audio, documents)

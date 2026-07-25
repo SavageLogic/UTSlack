@@ -5,17 +5,46 @@ import Qt.labs.platform 1.0 as Labs
 import "../js/SlackClient.js" as Slack
 import "../js/Storage.js" as Storage
 
+// Inline Slack image — sized like the official client (capped box), loads a thumb.
 Item {
     id: root
-    width: parent ? Math.min(parent.width, units.gu(40)) : units.gu(40)
+
+    // Match Slack mobile: keep attachments in a modest box, not full bubble width.
+    readonly property real maxInlineWidth: Math.min(parent ? parent.width : units.gu(22), units.gu(22))
+    readonly property real maxInlineHeight: units.gu(36)
+
+    width: {
+        if (root.failed)
+            return Math.min(parent ? parent.width : units.gu(22), units.gu(22))
+        if (image.status === Image.Ready && image.sourceSize.width > 0 && image.sourceSize.height > 0)
+            return fittedWidth
+        return Math.min(maxInlineWidth, units.gu(18))
+    }
     height: {
         if (root.failed)
             return errorLabel.implicitHeight + units.gu(2)
         if (busy.visible)
             return units.gu(12)
-        if (image.status === Image.Ready && image.sourceSize.width > 0)
-            return Math.ceil(root.width * image.sourceSize.height / image.sourceSize.width)
+        if (image.status === Image.Ready && image.sourceSize.width > 0 && image.sourceSize.height > 0)
+            return fittedHeight
         return units.gu(12)
+    }
+
+    readonly property real fittedWidth: {
+        var sw = image.sourceSize.width
+        var sh = image.sourceSize.height
+        if (sw <= 0 || sh <= 0)
+            return maxInlineWidth
+        var scale = Math.min(maxInlineWidth / sw, maxInlineHeight / sh, 1.0)
+        return Math.max(1, Math.ceil(sw * scale))
+    }
+    readonly property real fittedHeight: {
+        var sw = image.sourceSize.width
+        var sh = image.sourceSize.height
+        if (sw <= 0 || sh <= 0)
+            return units.gu(12)
+        var scale = Math.min(maxInlineWidth / sw, maxInlineHeight / sh, 1.0)
+        return Math.max(1, Math.ceil(sh * scale))
     }
 
     property string imageUrl: ""
@@ -44,8 +73,8 @@ Item {
         return "/tmp"
     }
 
-    function cacheKeyFor(url) {
-        return Storage.mediaCacheKey(root.fileId, url)
+    function cacheKeyFor(url, variant) {
+        return Storage.mediaCacheKey(root.fileId, url, variant || "thumb")
     }
 
     function diskPathForKey(key) {
@@ -59,12 +88,13 @@ Item {
             mimetype: root.mimetype,
             needsAuth: root.needsAuth,
             name: root.title,
+            id: root.fileId,
             loadedSource: root.loadedSource
         }
     }
 
-    function tryDiskCache(url) {
-        var key = cacheKeyFor(url)
+    function tryDiskCache(url, variant) {
+        var key = cacheKeyFor(url, variant)
         var entry = Storage.getMediaCacheEntry(key)
         if (!entry || !entry.path)
             return false
@@ -91,12 +121,12 @@ Item {
             return
         }
         if (!root.needsAuth && url.indexOf("http") === 0) {
-            if (tryDiskCache(url))
+            if (tryDiskCache(url, "thumb"))
                 return
             loadedSource = url
             return
         }
-        if (tryDiskCache(url))
+        if (tryDiskCache(url, "thumb"))
             return
 
         Slack.fetchImageAsDataUrl(url, root.mimetype, function(dataUrl) {
@@ -104,15 +134,14 @@ Item {
                 return
             if (!dataUrl) {
                 if (root.imageUrl && root.imageUrl !== url) {
-                    if (typeof root.tryDiskCache === "function" && root.tryDiskCache(root.imageUrl))
+                    if (tryDiskCache(root.imageUrl, "full"))
                         return
                     Slack.fetchImageAsDataUrl(root.imageUrl, root.mimetype, function(dataUrl2) {
                         if (!root || seq !== root.loadSeq)
                             return
                         if (dataUrl2) {
                             loadedSource = dataUrl2
-                            if (typeof root.persistDataUrl === "function" && typeof root.cacheKeyFor === "function")
-                                persistDataUrl(cacheKeyFor(root.imageUrl), dataUrl2)
+                            persistDataUrl(cacheKeyFor(root.imageUrl, "full"), dataUrl2)
                         } else {
                             failed = true
                         }
@@ -123,8 +152,7 @@ Item {
                 return
             }
             loadedSource = dataUrl
-            if (typeof root.persistDataUrl === "function" && typeof root.cacheKeyFor === "function")
-                persistDataUrl(cacheKeyFor(url), dataUrl)
+            persistDataUrl(cacheKeyFor(url, "thumb"), dataUrl)
         })
     }
 
@@ -133,7 +161,6 @@ Item {
     onThumbUrlChanged: startLoad()
     onFileIdChanged: startLoad()
 
-    // Offscreen helper to write data: images into CacheLocation/media
     Image {
         id: persistImage
         width: 1
@@ -164,7 +191,6 @@ Item {
                     return
                 var fileUrl = path.indexOf("file:") === 0 ? path : ("file://" + path)
                 Storage.setMediaCacheEntry(key, fileUrl)
-                // Prefer disk path next time; keep current data: display as-is
             })
         }
     }
@@ -192,10 +218,8 @@ Item {
 
     Image {
         id: image
-        width: parent.width
-        height: (status === Image.Ready && sourceSize.width > 0)
-                ? Math.ceil(width * sourceSize.height / sourceSize.width)
-                : 0
+        width: root.width
+        height: root.height
         visible: root.loadedSource.length > 0 && !root.failed
         source: root.loadedSource
         fillMode: Image.PreserveAspectFit
@@ -203,27 +227,24 @@ Item {
         cache: true
         onStatusChanged: {
             if (status === Image.Error && root.loadedSource.length > 0) {
-                // Stale disk entry — drop and refetch
                 if (("" + root.loadedSource).indexOf("file:") === 0) {
-                    var key = cacheKeyFor(root.thumbUrl || root.imageUrl)
+                    var key = cacheKeyFor(root.thumbUrl || root.imageUrl, "thumb")
                     Storage.removeMediaCacheEntry(key)
-                    if (root.needsAuth || ("" + root.loadedSource).indexOf("file:") === 0) {
-                        root.loadedSource = ""
-                        var seq = root.loadSeq
-                        var url = root.thumbUrl || root.imageUrl
-                        Slack.fetchImageAsDataUrl(url, root.mimetype, function(dataUrl) {
-                            if (seq !== root.loadSeq)
-                                return
-                            if (dataUrl) {
-                                root.failed = false
-                                root.loadedSource = dataUrl
-                                root.persistDataUrl(key, dataUrl)
-                            } else {
-                                root.failed = true
-                            }
-                        })
-                        return
-                    }
+                    root.loadedSource = ""
+                    var seq = root.loadSeq
+                    var url = root.thumbUrl || root.imageUrl
+                    Slack.fetchImageAsDataUrl(url, root.mimetype, function(dataUrl) {
+                        if (!root || seq !== root.loadSeq)
+                            return
+                        if (dataUrl) {
+                            root.failed = false
+                            root.loadedSource = dataUrl
+                            root.persistDataUrl(key, dataUrl)
+                        } else {
+                            root.failed = true
+                        }
+                    })
+                    return
                 }
                 root.failed = true
             }
