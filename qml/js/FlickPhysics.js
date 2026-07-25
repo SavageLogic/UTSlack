@@ -12,6 +12,6 @@ function configure(flickable, gridUnit) {
     if (!flickable || !gridUnit)
         return
     // Reference: 8px per gu (laptop); phones use a larger gridUnit.
-    flickable.maximumFlickVelocity = 4500 * gridUnit / 8
-    flickable.flickDeceleration = 1500 * gridUnit / 8
+    flickable.maximumFlickVelocity = 5500 * gridUnit / 8
+    flickable.flickDeceleration = 1350 * gridUnit / 8
 }
