@@ -145,8 +145,7 @@ ListItem {
     }
     readonly property color pressHighlight: theme.palette.highlighted.background
     readonly property color authorColor: dark ? "#C9A0CE" : theme.palette.normal.activity
-    // High-contrast link on near-black chat backgrounds (Suru activity is too dim)
-    readonly property color linkColor: dark ? "#A8D8FF" : "#0B5CAB"
+    readonly property color linkColor: theme.palette.normal.activity
     readonly property color chipMineBg: dark ? "#3D2A4A" : "#F4E8F5"
     readonly property color chipMineBorder: dark ? "#C9A0CE" : "#4A154B"
     readonly property bool hasText: root.text && root.text.length > 0 && root.text !== "<br/>"
@@ -161,6 +160,30 @@ ListItem {
             return i18n.tr("1 reply")
         return i18n.tr("%1 replies").arg(root.replyCount)
     }
+
+    // Qt Text.RichText often ignores linkColor on device; bake color into <a> tags.
+    function colorToHex(c) {
+        function h(v) {
+            var n = Math.round(Math.max(0, Math.min(1, Number(v))) * 255)
+            var s = n.toString(16)
+            return s.length === 1 ? "0" + s : s
+        }
+        return "#" + h(c.r) + h(c.g) + h(c.b)
+    }
+
+    function textWithColoredLinks(html) {
+        if (!html)
+            return ""
+        var hex = colorToHex(root.linkColor)
+        return ("" + html).replace(/<a\s+([^>]*)>/gi, function(match, attrs) {
+            var cleaned = (attrs || "").replace(/\s*style="[^"]*"/gi, "").replace(/^\s+|\s+$/g, "")
+            return cleaned.length > 0
+                ? ('<a style="color:' + hex + ';" ' + cleaned + ">")
+                : ('<a style="color:' + hex + ';">')
+        })
+    }
+
+    readonly property string displayHtml: root.hasText ? textWithColoredLinks(root.text) : ""
     readonly property string copyPayload: {
         var p = ("" + root.plainText).trim()
         if (p.length > 0)
@@ -296,7 +319,7 @@ ListItem {
                 id: msgLabel
                 width: parent.width
                 visible: root.hasText
-                text: root.hasText ? root.text : ""
+                text: root.displayHtml
                 textFormat: Text.RichText
                 wrapMode: Text.Wrap
                 color: theme.palette.normal.backgroundText

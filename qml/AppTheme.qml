@@ -31,8 +31,7 @@ Item {
     readonly property color positive: theme.palette.normal.positive
     readonly property color negative: theme.palette.normal.negative
     readonly property color activity: theme.palette.normal.activity
-    // High-contrast link on dark backgrounds
-    readonly property color link: dark ? "#A8D8FF" : "#0B5CAB"
+    readonly property color link: theme.palette.normal.activity
     readonly property color bubbleSelf: dark ? "#1B3D2F" : "#E8F5E9"
     readonly property color bubbleSelfBorder: dark ? "#2D6A4F" : "#C8E6C9"
     readonly property color bubbleOther: theme.palette.normal.foreground
