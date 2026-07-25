@@ -76,6 +76,17 @@ function markSeen(channelId, ts) {
     Storage.markChannelSeen(channelId, ts)
 }
 
+function deepLinkForMessage(messageObj) {
+    var channelId = (messageObj && messageObj.channelId) || ""
+    if (!channelId)
+        return "appid://utslack.savagelogic/utslack/current-user-version"
+    var url = "utslack://open?channel=" + encodeURIComponent(channelId)
+    var title = (messageObj && messageObj.channelTitle) || ""
+    if (title)
+        url += "&title=" + encodeURIComponent(title)
+    return url
+}
+
 function sendPush(summary, body, tag, messageObj) {
     if (!_pushToken) {
         console.log("[notify] no push token yet")
@@ -95,7 +106,8 @@ function sendPush(summary, body, tag, messageObj) {
                     body: body || "",
                     popup: true,
                     persist: true,
-                    actions: ["appid://utslack.savagelogic/utslack/current-user-version"]
+                    // Deep-link into the conversation; url-dispatcher launches/resumes the app.
+                    actions: [deepLinkForMessage(messageObj)]
                 },
                 sound: true,
                 vibrate: true

@@ -4,4 +4,5 @@ MessageComposer 1.0 MessageComposer.qml
 ReactionPicker 1.0 ReactionPicker.qml
 SectionHeader 1.0 SectionHeader.qml
 SlackImage 1.0 SlackImage.qml
+SlackMediaAttachment 1.0 SlackMediaAttachment.qml
 ImageSaver 1.0 ImageSaver.qml

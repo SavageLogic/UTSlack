@@ -643,6 +643,16 @@ function _guessMimeFromName(name) {
     if (/\.bmp$/.test(n)) return "image/bmp"
     if (/\.mp4$/.test(n)) return "video/mp4"
     if (/\.webm$/.test(n)) return "video/webm"
+    if (/\.mov$/.test(n)) return "video/quicktime"
+    if (/\.mkv$/.test(n)) return "video/x-matroska"
+    if (/\.3gp$/.test(n)) return "video/3gpp"
+    if (/\.m4a$/.test(n)) return "audio/mp4"
+    if (/\.aac$/.test(n)) return "audio/aac"
+    if (/\.mp3$/.test(n)) return "audio/mpeg"
+    if (/\.ogg$/.test(n)) return "audio/ogg"
+    if (/\.opus$/.test(n)) return "audio/opus"
+    if (/\.wav$/.test(n)) return "audio/wav"
+    if (/\.flac$/.test(n)) return "audio/flac"
     if (/\.pdf$/.test(n)) return "application/pdf"
     return "application/octet-stream"
 }
@@ -1249,6 +1259,11 @@ function _authedImageUrl(url) {
     if (/[?&]token=/.test(url))
         return url
     return url + (url.indexOf("?") >= 0 ? "&" : "?") + "token=" + encodeURIComponent(_token)
+}
+
+// Public helper for opening private Slack file URLs in Morph / external handlers
+function authedUrl(url) {
+    return _authedImageUrl(url)
 }
 
 // Fetch a (possibly private) Slack image and return a data: URI for Image.source

@@ -6,9 +6,15 @@ Page {
     id: pickerPage
     property var activeTransfer
     property int contentType: ContentType.Pictures
-    property string pageTitle: contentType === ContentType.Documents
-                               ? i18n.tr("Choose a file")
-                               : i18n.tr("Choose media")
+    property string pageTitle: {
+        if (contentType === ContentType.Documents)
+            return i18n.tr("Choose a file")
+        if (contentType === ContentType.Videos)
+            return i18n.tr("Record or choose a video")
+        if (contentType === ContentType.Music)
+            return i18n.tr("Record or choose audio")
+        return i18n.tr("Choose a photo")
+    }
 
     signal imported(string fileUrl)
     signal cancelled()

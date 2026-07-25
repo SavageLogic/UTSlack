@@ -3,6 +3,7 @@
         "pictures",
         "documents",
         "videos",
+        "music",
         "links",
         "text"
     ],
@@ -10,12 +11,14 @@
         "pictures",
         "documents",
         "videos",
+        "music",
         "links",
         "text"
     ],
     "source": [
         "pictures",
         "documents",
-        "videos"
+        "videos",
+        "music"
     ]
 }

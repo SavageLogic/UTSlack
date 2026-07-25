@@ -100,18 +100,19 @@ Item {
             return
 
         Slack.fetchImageAsDataUrl(url, root.mimetype, function(dataUrl) {
-            if (seq !== root.loadSeq)
+            if (!root || seq !== root.loadSeq)
                 return
             if (!dataUrl) {
                 if (root.imageUrl && root.imageUrl !== url) {
-                    if (tryDiskCache(root.imageUrl))
+                    if (typeof root.tryDiskCache === "function" && root.tryDiskCache(root.imageUrl))
                         return
                     Slack.fetchImageAsDataUrl(root.imageUrl, root.mimetype, function(dataUrl2) {
-                        if (seq !== root.loadSeq)
+                        if (!root || seq !== root.loadSeq)
                             return
                         if (dataUrl2) {
                             loadedSource = dataUrl2
-                            persistDataUrl(cacheKeyFor(root.imageUrl), dataUrl2)
+                            if (typeof root.persistDataUrl === "function" && typeof root.cacheKeyFor === "function")
+                                persistDataUrl(cacheKeyFor(root.imageUrl), dataUrl2)
                         } else {
                             failed = true
                         }
@@ -122,7 +123,8 @@ Item {
                 return
             }
             loadedSource = dataUrl
-            persistDataUrl(cacheKeyFor(url), dataUrl)
+            if (typeof root.persistDataUrl === "function" && typeof root.cacheKeyFor === "function")
+                persistDataUrl(cacheKeyFor(url), dataUrl)
         })
     }
 

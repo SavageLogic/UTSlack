@@ -7,7 +7,8 @@
         "utslack": {
             "apparmor": "utslack.apparmor",
             "desktop": "utslack.desktop",
-            "content-hub": "utslack-contenthub.json"
+            "content-hub": "utslack-contenthub.json",
+            "urls": "utslack.url-dispatcher"
         },
         "push": {
             "apparmor": "push/push-apparmor.json",

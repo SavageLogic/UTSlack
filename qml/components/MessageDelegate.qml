@@ -17,12 +17,14 @@ ListItem {
     property string timeLabel: ""
     property bool isSelf: false
     property string imagesJson: "[]"
+    property string filesJson: "[]"
     property string reactionsJson: "[]"
     property int replyCount: 0
     property string threadTs: ""
     property bool showThreadActions: true
 
     property var imageList: []
+    property var fileList: []
     property var reactionList: []
     property bool childPressed: false
     property bool menuOpen: false
@@ -54,9 +56,11 @@ ListItem {
     trailingActions: root.isSelf && root.ts.length > 0 ? editActions : null
 
     onImagesJsonChanged: parseImages()
+    onFilesJsonChanged: parseFiles()
     onReactionsJsonChanged: parseReactions()
     Component.onCompleted: {
         parseImages()
+        parseFiles()
         parseReactions()
     }
 
@@ -68,12 +72,49 @@ ListItem {
         }
     }
 
+    function parseFiles() {
+        try {
+            fileList = JSON.parse(filesJson || "[]") || []
+        } catch (e) {
+            fileList = []
+        }
+    }
+
     function parseReactions() {
         try {
             reactionList = JSON.parse(reactionsJson || "[]") || []
         } catch (e) {
             reactionList = []
         }
+    }
+
+    function fileIconName(kind) {
+        if (kind === "video")
+            return "media-playback-start"
+        if (kind === "audio")
+            return "audio-x-generic"
+        return "document-open"
+    }
+
+    function fileKindLabel(kind, prettyType) {
+        if (prettyType && ("" + prettyType).length > 0)
+            return "" + prettyType
+        if (kind === "video")
+            return i18n.tr("Video")
+        if (kind === "audio")
+            return i18n.tr("Audio")
+        return i18n.tr("File")
+    }
+
+    function formatFileSize(bytes) {
+        var n = Number(bytes) || 0
+        if (n <= 0)
+            return ""
+        if (n < 1024)
+            return n + " B"
+        if (n < 1024 * 1024)
+            return Math.round(n / 102.4) / 10 + " KB"
+        return Math.round(n / (1024 * 102.4)) / 10 + " MB"
     }
 
     function reactionGlyph(name) {
@@ -102,6 +143,7 @@ ListItem {
     readonly property color chipMineBorder: dark ? "#C9A0CE" : "#4A154B"
     readonly property bool hasText: root.text && root.text.length > 0 && root.text !== "<br/>"
     readonly property bool hasImages: imageList && imageList.length > 0
+    readonly property bool hasFiles: fileList && fileList.length > 0
     readonly property bool hasReactions: reactionList && reactionList.length > 0
     readonly property string effectiveThreadTs: root.threadTs || root.ts
     readonly property string repliesLabel: {
@@ -115,6 +157,14 @@ ListItem {
         var p = ("" + root.plainText).trim()
         if (p.length > 0)
             return p
+        if (root.hasFiles && root.fileList.length > 0) {
+            var names = []
+            for (var i = 0; i < root.fileList.length; i++)
+                names.push(root.fileList[i].name || root.fileList[i].title || "")
+            var joined = names.join(", ").trim()
+            if (joined.length > 0)
+                return joined
+        }
         return ("" + root.text)
             .replace(/<br\s*\/?>/gi, "\n")
             .replace(/<[^>]+>/g, "")
@@ -129,6 +179,7 @@ ListItem {
     signal imageOpenRequested(var imageInfo)
     signal imageDownloadRequested(var imageInfo)
     signal imageCopyRequested(var imageInfo)
+    signal fileOpenRequested(var fileInfo)
     signal copyTextRequested(string value)
     signal threadOpenRequested(string threadTs)
     signal reactionToggled(string ts, string name, bool currentlyMine)
@@ -276,6 +327,31 @@ ListItem {
                     onOpenRequested: root.imageOpenRequested(imageInfo())
                     onDownloadRequested: root.imageDownloadRequested(imageInfo())
                     onCopyRequested: root.imageCopyRequested(imageInfo())
+                }
+            }
+
+            Repeater {
+                model: root.fileList
+                delegate: SlackMediaAttachment {
+                    width: bodyCol.width
+                    kind: modelData.kind || "file"
+                    mediaUrl: modelData.url || ""
+                    thumbUrl: modelData.thumb || ""
+                    title: modelData.title || modelData.name || ""
+                    mimetype: modelData.mimetype || ""
+                    fileId: modelData.id || ""
+                    mediaWidth: modelData.width || 0
+                    mediaHeight: modelData.height || 0
+                    byteSize: modelData.size || 0
+                    prettyType: modelData.prettyType || ""
+                    needsAuth: modelData.needsAuth !== false
+                    onOpenRequested: root.fileOpenRequested(fileInfo)
+                    onChildPressChanged: {
+                        if (pressed)
+                            root.beginChildPress()
+                        else
+                            root.endChildPress()
+                    }
                 }
             }
 

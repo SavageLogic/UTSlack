@@ -2,8 +2,10 @@ import QtQuick 2.7
 import Lomiri.Components 1.3
 import Lomiri.Components.Popups 1.3
 import Lomiri.Content 1.3
+import UTSlack 1.0
 import "../components"
 import "../js/Models.js" as Models
+import "../js/SlackClient.js" as Slack
 import "../js/FlickPhysics.js" as FlickPhysics
 
 Page {
@@ -24,6 +26,8 @@ Page {
     property bool loadingOlder: false
     property bool hasMoreOlder: true
     property bool activePolling: true
+    property string pendingOpenKey: ""
+    property bool openingAttachment: false
 
     readonly property string headerSubtitle: {
         var t = channelTitle || ""
@@ -85,6 +89,7 @@ Page {
                 text: m.text,
                 plainText: m.plainText || "",
                 imagesJson: m.imagesJson || "[]",
+                filesJson: m.filesJson || "[]",
                 reactionsJson: m.reactionsJson || "[]",
                 timeLabel: m.timeLabel,
                 isSelf: app && app.userId && m.userId === app.userId,
@@ -131,6 +136,7 @@ Page {
                 text: m.text,
                 plainText: m.plainText || "",
                 imagesJson: m.imagesJson || "[]",
+                filesJson: m.filesJson || "[]",
                 reactionsJson: m.reactionsJson || "[]",
                 timeLabel: m.timeLabel,
                 isSelf: app && app.userId && m.userId === app.userId,
@@ -312,6 +318,68 @@ Page {
 
     function openAttachMenu() {
         PopupUtils.open(attachPopover, composer)
+    }
+
+    function attachmentExtension(info) {
+        var mime = ((info && info.mimetype) || "").toLowerCase()
+        var name = ((info && info.name) || "").toLowerCase()
+        if (mime.indexOf("video/mp4") === 0 || /\.mp4$/.test(name))
+            return "mp4"
+        if (mime.indexOf("video/quicktime") === 0 || /\.mov$/.test(name))
+            return "mov"
+        if (mime.indexOf("audio/mpeg") === 0 || /\.mp3$/.test(name))
+            return "mp3"
+        if (mime.indexOf("audio/mp4") === 0 || /\.m4a$/.test(name))
+            return "m4a"
+        if (mime.indexOf("application/pdf") === 0 || /\.pdf$/.test(name))
+            return "pdf"
+        var dot = name.lastIndexOf(".")
+        if (dot > 0 && dot < name.length - 1)
+            return name.substring(dot + 1).replace(/[^a-z0-9]/g, "") || "bin"
+        if (mime.indexOf("video/") === 0)
+            return "mp4"
+        if (mime.indexOf("audio/") === 0)
+            return "mp3"
+        return "bin"
+    }
+
+    function openFileAttachment(info) {
+        if (!info || !info.url)
+            return
+        if (info.needsAuth === false) {
+            Qt.openUrlExternally(info.url)
+            return
+        }
+        var key = info.id || info.url
+        if (MediaCache.has(key)) {
+            var local = MediaCache.fileUrlFor(key)
+            if (local)
+                Qt.openUrlExternally(local)
+            return
+        }
+        pendingOpenKey = key
+        openingAttachment = true
+        errorText = ""
+        MediaCache.download(info.url, Slack.getToken(), key, attachmentExtension(info))
+    }
+
+    Connections {
+        target: MediaCache
+        onDownloadFinished: {
+            if (!threadPage.openingAttachment || key !== threadPage.pendingOpenKey)
+                return
+            threadPage.openingAttachment = false
+            threadPage.pendingOpenKey = ""
+            if (fileUrl)
+                Qt.openUrlExternally(fileUrl)
+        }
+        onDownloadFailed: {
+            if (!threadPage.openingAttachment || key !== threadPage.pendingOpenKey)
+                return
+            threadPage.openingAttachment = false
+            threadPage.pendingOpenKey = ""
+            threadPage.errorText = error || i18n.tr("Couldn't open attachment")
+        }
     }
 
     function openImageViewer(info) {
@@ -551,6 +619,7 @@ Page {
             timeLabel: model.timeLabel
             isSelf: model.isSelf
             imagesJson: model.imagesJson || "[]"
+            filesJson: model.filesJson || "[]"
             reactionsJson: model.reactionsJson || "[]"
             replyCount: 0
             threadTs: model.threadTs || ""
@@ -558,6 +627,7 @@ Page {
             onImageOpenRequested: threadPage.openImageViewer(imageInfo)
             onImageDownloadRequested: threadPage.downloadImage(imageInfo)
             onImageCopyRequested: threadPage.copyImage(imageInfo)
+            onFileOpenRequested: threadPage.openFileAttachment(fileInfo)
             onCopyTextRequested: threadPage.copyMessageText(value)
             onDeleteRequested: threadPage.deleteMessage(ts)
             onEditRequested: threadPage.beginEditMessage(ts, plainText)
@@ -640,8 +710,18 @@ Page {
             actions: ActionList {
                 Action {
                     iconName: "image"
-                    text: i18n.tr("Photo or video")
+                    text: i18n.tr("Photos…")
                     onTriggered: threadPage.openContentHub(ContentType.Pictures)
+                }
+                Action {
+                    iconName: "media-record"
+                    text: i18n.tr("Record video…")
+                    onTriggered: threadPage.openContentHub(ContentType.Videos)
+                }
+                Action {
+                    iconName: "audio-input-microphone"
+                    text: i18n.tr("Record audio…")
+                    onTriggered: threadPage.openContentHub(ContentType.Music)
                 }
                 Action {
                     iconName: "document-open"

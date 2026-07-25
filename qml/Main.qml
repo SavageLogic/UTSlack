@@ -32,6 +32,10 @@ MainView {
     property var lastRawChannels: []
     property bool notificationsEnabled: true
     property string pushStatus: ""
+    property string pendingChannelId: ""
+    property string pendingChannelTitle: ""
+    // Only set when launched via utslack:// — never from push mailbox noise.
+    property bool pendingFromDeepLinkUrl: false
 
     // Incoming Content Hub share (links / files from other apps)
     property var pendingShareTransfer: null
@@ -213,6 +217,18 @@ MainView {
         onNotificationsChanged: root.handlePushMessages(notifications)
     }
 
+    Connections {
+        target: UriHandler
+        onOpened: root.handleIncomingUrls(uris)
+    }
+
+    Timer {
+        id: deepLinkTimer
+        interval: 75
+        repeat: false
+        onTriggered: root.flushPendingDeepLink()
+    }
+
     Timer {
         id: notifyPollTimer
         interval: 45000
@@ -228,31 +244,138 @@ MainView {
         Storage.setNotificationsEnabled(notificationsEnabled)
     }
 
+    // Push mailbox delivery only — never navigate. Regular launches deliver
+    // leftover messages here; treating them as taps broke normal startup.
     function handlePushMessages(messages) {
-        if (!messages || messages.length === 0)
+        // no-op (navigation is utslack:// only)
+    }
+
+    function queryParam(query, name) {
+        if (!query || !name)
+            return ""
+        try {
+            var parts = ("" + query).split("&")
+            for (var i = 0; i < parts.length; i++) {
+                var kv = parts[i].split("=")
+                var key = decodeURIComponent(kv[0] || "")
+                if (key === name)
+                    return decodeURIComponent((kv.slice(1).join("=") || "").replace(/\+/g, " "))
+            }
+        } catch (e) {
+            console.warn("[deeplink] queryParam", e)
+        }
+        return ""
+    }
+
+    function parseUtslackUrl(url) {
+        try {
+            var s = ("" + (url || "")).trim()
+            if (s.indexOf("utslack:") !== 0)
+                return null
+            var withoutScheme = s.substring("utslack:".length)
+            if (withoutScheme.indexOf("//") === 0)
+                withoutScheme = withoutScheme.substring(2)
+
+            var qIndex = withoutScheme.indexOf("?")
+            var path = qIndex >= 0 ? withoutScheme.substring(0, qIndex) : withoutScheme
+            var query = qIndex >= 0 ? withoutScheme.substring(qIndex + 1) : ""
+            path = path.replace(/^\/+/, "").replace(/\/+$/, "")
+
+            var channelId = queryParam(query, "channel")
+            var title = queryParam(query, "title")
+            if (!channelId) {
+                var segs = path.split("/")
+                if (segs.length >= 2 && (segs[0] === "open" || segs[0] === "channel" || segs[0] === "chat"))
+                    channelId = decodeURIComponent(segs[1] || "")
+                else if (segs.length === 1 && segs[0] && segs[0] !== "open")
+                    channelId = decodeURIComponent(segs[0])
+            }
+            if (!channelId)
+                return null
+            return { channelId: channelId, channelTitle: title || "" }
+        } catch (e) {
+            console.warn("[deeplink] parse failed", e)
+            return null
+        }
+    }
+
+    function queueDeepLinkFromUrl(channelId, channelTitle) {
+        if (!channelId)
             return
-        for (var i = 0; i < messages.length; i++) {
-            var raw = messages[i]
-            var data = raw
-            if (typeof raw === "string") {
-                try { data = JSON.parse(raw) } catch (e) { continue }
+        pendingChannelId = channelId
+        pendingChannelTitle = channelTitle || ""
+        pendingFromDeepLinkUrl = true
+        if (ready)
+            deepLinkTimer.restart()
+    }
+
+    function handleIncomingUrls(uris) {
+        if (!uris || uris.length === 0)
+            return
+        try {
+            for (var i = 0; i < uris.length; i++) {
+                var parsed = parseUtslackUrl(uris[i])
+                if (parsed && parsed.channelId) {
+                    queueDeepLinkFromUrl(parsed.channelId, parsed.channelTitle || "")
+                    return
+                }
             }
-            var msg = data.message || data
-            if (msg && msg.channelId) {
-                openChatFromNotification(msg.channelId, msg.channelTitle || "")
+        } catch (e) {
+            console.warn("[deeplink] handleIncomingUrls", e)
+        }
+    }
+
+    function checkLaunchArguments() {
+        try {
+            var args = Qt.application.arguments || []
+            for (var i = 0; i < args.length; i++) {
+                var a = "" + args[i]
+                if (a.indexOf("utslack:") === 0) {
+                    handleIncomingUrls([a])
+                    return
+                }
+            }
+        } catch (e) {
+            console.warn("[deeplink] checkLaunchArguments", e)
+        }
+    }
+
+    function flushPendingDeepLink() {
+        if (!pendingFromDeepLinkUrl || !pendingChannelId || !ready)
+            return
+
+        var channelId = pendingChannelId
+        var channelTitle = pendingChannelTitle || i18n.tr("Chat")
+        pendingChannelId = ""
+        pendingChannelTitle = ""
+        pendingFromDeepLinkUrl = false
+
+        try {
+            var top = pageStack.currentPage
+            if (top && top.channelId === channelId
+                    && (top.threadTs === undefined || top.threadTs === ""))
                 return
+
+            while (pageStack.depth > 1)
+                pageStack.pop()
+
+            if (pageStack.depth < 1) {
+                pageStack.push(Qt.resolvedUrl("pages/ConversationsPage.qml"), { app: root })
             }
+
+            pageStack.push(Qt.resolvedUrl("pages/ChatPage.qml"), {
+                app: root,
+                channelId: channelId,
+                channelTitle: channelTitle
+            })
+        } catch (e) {
+            console.warn("[deeplink] open failed", e)
         }
     }
 
     function openChatFromNotification(channelId, channelTitle) {
-        if (!channelId || !ready)
-            return
-        pageStack.push(Qt.resolvedUrl("pages/ChatPage.qml"), {
-            app: root,
-            channelId: channelId,
-            channelTitle: channelTitle || i18n.tr("Chat")
-        })
+        // Only used for explicit utslack:// handling.
+        queueDeepLinkFromUrl(channelId, channelTitle)
     }
 
     function connectWithToken(token, callback) {
@@ -317,7 +440,10 @@ MainView {
     function showConversations() {
         pageStack.clear()
         pageStack.push(Qt.resolvedUrl("pages/ConversationsPage.qml"), { app: root })
-        openShareTargetIfNeeded()
+        if (pendingFromDeepLinkUrl && pendingChannelId)
+            deepLinkTimer.restart()
+        else
+            openShareTargetIfNeeded()
     }
 
     function updateNotifyWatchList(items) {
@@ -798,17 +924,33 @@ MainView {
     }
 
     Component.onCompleted: {
-        Slack.setRetryScheduler(function(delayMs, fn) {
-            retryBridge.schedule(delayMs, fn)
-        })
-        Notify.loadPrefs()
-        notificationsEnabled = Notify.isEnabled()
-        Storage.purgeExpiredCache()
+        console.log("[startup] begin")
+        try {
+            Slack.setRetryScheduler(function(delayMs, fn) {
+                retryBridge.schedule(delayMs, fn)
+            })
+            Notify.loadPrefs()
+            notificationsEnabled = Notify.isEnabled()
+            Storage.purgeExpiredCache()
+        } catch (e) {
+            console.warn("[startup] init error", e)
+        }
 
-        var token = Storage.getToken()
+        var token = ""
+        try {
+            token = Storage.getToken() || ""
+        } catch (e2) {
+            console.warn("[startup] token read failed", e2)
+        }
+        console.log("[startup] token", token ? "present" : "missing")
+
+        // Deep-link args after auth path is kicked off — never block first paint.
+        checkLaunchArguments()
+
         if (token && token.length > 0) {
             Slack.setToken(token)
             Slack.authTest(function(res) {
+                console.log("[startup] authTest", res && res.ok)
                 if (res && res.ok) {
                     applyAuth(res)
                     Slack.ensureCustomEmoji(function() {})

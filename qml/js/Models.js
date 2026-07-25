@@ -929,6 +929,66 @@ function extractImages(message) {
     return images
 }
 
+function _fileKind(mime, name) {
+    var m = (mime || "").toLowerCase()
+    var n = (name || "").toLowerCase()
+    if (m.indexOf("video/") === 0 || /\.(mp4|webm|mov|mkv|3gp|m4v)$/i.test(n))
+        return "video"
+    if (m.indexOf("audio/") === 0 || /\.(mp3|m4a|aac|ogg|opus|wav|flac|oga)$/i.test(n))
+        return "audio"
+    return "file"
+}
+
+function _fileThumb(file) {
+    if (!file)
+        return ""
+    // thumb_video is a boolean on Slack file objects — not a URL
+    return file.thumb_480 || file.thumb_360 || file.thumb_720
+            || file.thumb_800 || file.thumb_960 || file.thumb_160 || ""
+}
+
+// Non-image file attachments (video, audio, documents)
+function extractFiles(message) {
+    var out = []
+    if (!message)
+        return out
+
+    var files = message.files || []
+    if ((!files || files.length === 0) && message.file)
+        files = [message.file]
+    for (var f = 0; f < files.length; f++) {
+        var file = files[f]
+        if (!file)
+            continue
+        var mime = (file.mimetype || "").toLowerCase()
+        var name = file.name || file.title || "file"
+        var isImage = mime.indexOf("image/") === 0
+                || /\.(png|jpe?g|gif|webp|bmp)$/i.test(name)
+        if (isImage)
+            continue
+        var full = file.url_private_download || file.url_private || ""
+        if (!full)
+            continue
+        var kind = _fileKind(mime, name)
+        var thumb = _fileThumb(file)
+        out.push({
+            id: file.id || "",
+            name: name,
+            title: file.title || name,
+            mimetype: mime || "application/octet-stream",
+            kind: kind,
+            thumb: thumb,
+            url: full,
+            size: Number(file.size) || 0,
+            width: Number(file.original_w) || Number(file.thumb_720_w) || Number(file.thumb_480_w) || 0,
+            height: Number(file.original_h) || Number(file.thumb_720_h) || Number(file.thumb_480_h) || 0,
+            prettyType: file.pretty_type || "",
+            needsAuth: true
+        })
+    }
+    return out
+}
+
 function normalizeMessages(messages, options) {
     var items = []
     if (!messages)
@@ -948,6 +1008,7 @@ function normalizeMessages(messages, options) {
             || (userId ? Slack.userDisplayName(userId) : "System")
         var raw = m.text || ""
         var images = extractImages(m)
+        var files = extractFiles(m)
         var ts = m.ts || ""
         var threadTs = m.thread_ts || ""
         var replyCount = Number(m.reply_count) || 0
@@ -962,6 +1023,8 @@ function normalizeMessages(messages, options) {
             rawText: raw,
             imagesJson: JSON.stringify(images),
             hasImages: images.length > 0,
+            filesJson: JSON.stringify(files),
+            hasFiles: files.length > 0,
             reactionsJson: JSON.stringify(reactions),
             timeLabel: formatTs(m.ts),
             dayLabel: formatDay(m.ts),

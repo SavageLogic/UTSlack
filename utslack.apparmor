@@ -1,6 +1,7 @@
 {
     "policy_groups": [
         "networking",
+        "audio",
         "push-notification-client",
         "content_exchange",
         "content_exchange_source"
