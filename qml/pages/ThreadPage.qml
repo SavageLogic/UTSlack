@@ -533,7 +533,8 @@ Page {
 
     Timer {
         id: pollTimer
-        interval: 8000
+        interval: Math.max(3, (threadPage.app && threadPage.app.chatPollSeconds)
+                              ? threadPage.app.chatPollSeconds : 8) * 1000
         repeat: true
         running: threadPage.activePolling && threadPage.channelId.length > 0
                  && threadPage.threadTs.length > 0

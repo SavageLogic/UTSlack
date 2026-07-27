@@ -32,6 +32,9 @@ MainView {
     property var lastRawChannels: []
     property bool notificationsEnabled: true
     property string pushStatus: ""
+    // Poll intervals (seconds); loaded from Storage on startup / settings change.
+    property int chatPollSeconds: 8
+    property int notifyPollSeconds: 45
     property string pendingChannelId: ""
     property string pendingChannelTitle: ""
     // Only set when launched via utslack:// — never from push mailbox noise.
@@ -231,7 +234,7 @@ MainView {
 
     Timer {
         id: notifyPollTimer
-        interval: 45000
+        interval: Math.max(10, root.notifyPollSeconds) * 1000
         repeat: true
         running: root.ready && root.notificationsEnabled
                  && Qt.application.state !== Qt.ApplicationSuspended
@@ -242,6 +245,21 @@ MainView {
         notificationsEnabled = !!enabled
         Notify.setEnabled(notificationsEnabled)
         Storage.setNotificationsEnabled(notificationsEnabled)
+    }
+
+    function setChatPollSeconds(seconds) {
+        Storage.setChatPollSeconds(seconds)
+        chatPollSeconds = Storage.getChatPollSeconds()
+    }
+
+    function setNotifyPollSeconds(seconds) {
+        Storage.setNotifyPollSeconds(seconds)
+        notifyPollSeconds = Storage.getNotifyPollSeconds()
+    }
+
+    function loadPollPrefs() {
+        chatPollSeconds = Storage.getChatPollSeconds()
+        notifyPollSeconds = Storage.getNotifyPollSeconds()
     }
 
     // Push mailbox delivery only — never navigate. Regular launches deliver
@@ -931,6 +949,7 @@ MainView {
             })
             Notify.loadPrefs()
             notificationsEnabled = Notify.isEnabled()
+            root.loadPollPrefs()
             Storage.purgeExpiredCache()
         } catch (e) {
             console.warn("[startup] init error", e)

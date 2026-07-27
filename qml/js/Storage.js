@@ -70,6 +70,35 @@ function setNotificationsEnabled(enabled) {
     set("notificationsEnabled", enabled ? "1" : "0")
 }
 
+function _clampInt(value, fallback, min, max) {
+    var n = parseInt(value, 10)
+    if (isNaN(n))
+        n = fallback
+    if (n < min)
+        n = min
+    if (n > max)
+        n = max
+    return n
+}
+
+// How often an open chat/thread polls Slack for new messages (seconds).
+function getChatPollSeconds() {
+    return _clampInt(get("chatPollSeconds", "8"), 8, 3, 300)
+}
+
+function setChatPollSeconds(seconds) {
+    set("chatPollSeconds", "" + _clampInt(seconds, 8, 3, 300))
+}
+
+// How often the conversations list notify poller checks watched channels (seconds).
+function getNotifyPollSeconds() {
+    return _clampInt(get("notifyPollSeconds", "45"), 45, 10, 3600)
+}
+
+function setNotifyPollSeconds(seconds) {
+    set("notifyPollSeconds", "" + _clampInt(seconds, 45, 10, 3600))
+}
+
 function getLastSeenMap() {
     var raw = get("lastSeenMap", "{}")
     try {

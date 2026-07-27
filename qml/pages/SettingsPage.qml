@@ -117,6 +117,73 @@ Page {
 
             Column {
                 width: parent.width
+                spacing: units.gu(2)
+                visible: notifSwitch.checked
+
+                Label {
+                    text: i18n.tr("Polling")
+                    font.bold: true
+                }
+
+                Label {
+                    width: parent.width
+                    wrapMode: Text.Wrap
+                    fontSize: "small"
+                    color: theme.palette.normal.backgroundSecondaryText
+                    text: i18n.tr("How often UTSlack asks Slack for updates. Shorter intervals feel snappier but use more battery and API calls.")
+                }
+
+                OptionSelector {
+                    id: chatPollSelector
+                    width: parent.width
+                    text: i18n.tr("Open chat / thread")
+                    model: [
+                        i18n.tr("5 seconds"),
+                        i18n.tr("8 seconds (default)"),
+                        i18n.tr("15 seconds"),
+                        i18n.tr("30 seconds"),
+                        i18n.tr("60 seconds")
+                    ]
+                    containerHeight: itemHeight * 4
+                    Component.onCompleted: selectedIndex = settingsPage.indexForChatPoll()
+                    onSelectedIndexChanged: {
+                        if (!app || !app.setChatPollSeconds)
+                            return
+                        var secs = settingsPage.chatPollSecondsForIndex(selectedIndex)
+                        if (secs !== app.chatPollSeconds)
+                            app.setChatPollSeconds(secs)
+                    }
+                }
+
+                OptionSelector {
+                    id: notifyPollSelector
+                    width: parent.width
+                    text: i18n.tr("Channels & DMs (notifications)")
+                    model: [
+                        i18n.tr("15 seconds"),
+                        i18n.tr("30 seconds"),
+                        i18n.tr("45 seconds (default)"),
+                        i18n.tr("60 seconds"),
+                        i18n.tr("2 minutes"),
+                        i18n.tr("5 minutes"),
+                        i18n.tr("15 minutes"),
+                        i18n.tr("30 minutes"),
+                        i18n.tr("1 hour")
+                    ]
+                    containerHeight: itemHeight * 4
+                    Component.onCompleted: selectedIndex = settingsPage.indexForNotifyPoll()
+                    onSelectedIndexChanged: {
+                        if (!app || !app.setNotifyPollSeconds)
+                            return
+                        var secs = settingsPage.notifyPollSecondsForIndex(selectedIndex)
+                        if (secs !== app.notifyPollSeconds)
+                            app.setNotifyPollSeconds(secs)
+                    }
+                }
+            }
+
+            Column {
+                width: parent.width
                 spacing: units.gu(1)
                 visible: settingsPage.showNotifyDebug
 
@@ -182,6 +249,43 @@ Page {
                 text: i18n.tr("UTSlack v1.0.0 — native Slack client for Ubuntu Touch.")
             }
         }
+    }
+
+    readonly property var chatPollChoices: [5, 8, 15, 30, 60]
+    readonly property var notifyPollChoices: [15, 30, 45, 60, 120, 300, 900, 1800, 3600]
+
+    function chatPollSecondsForIndex(index) {
+        var list = chatPollChoices
+        if (index < 0 || index >= list.length)
+            return 8
+        return list[index]
+    }
+
+    function indexForChatPoll() {
+        var secs = app ? app.chatPollSeconds : 8
+        var list = chatPollChoices
+        for (var i = 0; i < list.length; i++) {
+            if (list[i] === secs)
+                return i
+        }
+        return 1
+    }
+
+    function notifyPollSecondsForIndex(index) {
+        var list = notifyPollChoices
+        if (index < 0 || index >= list.length)
+            return 45
+        return list[index]
+    }
+
+    function indexForNotifyPoll() {
+        var secs = app ? app.notifyPollSeconds : 45
+        var list = notifyPollChoices
+        for (var i = 0; i < list.length; i++) {
+            if (list[i] === secs)
+                return i
+        }
+        return 2
     }
 
     Component {

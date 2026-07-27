@@ -678,7 +678,8 @@ Page {
 
     Timer {
         id: pollTimer
-        interval: 8000
+        interval: Math.max(3, (chatPage.app && chatPage.app.chatPollSeconds)
+                              ? chatPage.app.chatPollSeconds : 8) * 1000
         repeat: true
         running: chatPage.activePolling && !chatPage.searchMode && chatPage.channelId.length > 0
         onTriggered: chatPage.pollNew()
