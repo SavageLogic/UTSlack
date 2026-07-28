@@ -58,14 +58,16 @@ Native Slack client for [Ubuntu Touch](https://ubuntu-touch.io/), built with QML
 
 1. In your Slack app → **Basic Information** → **App-Level Tokens** → create a token with `connections:write` (`xapp-…`)
 2. Enable **Socket Mode**
-3. Under **Event Subscriptions**, turn on events and subscribe to these **on behalf of users** (not bot events):
+3. Under **Event Subscriptions**, turn on events. Add these under **Subscribe to events on behalf of users** — **not** under “Subscribe to bot events”:
 
    | Event | Purpose |
    |-------|---------|
    | `message.channels` | Messages in public channels |
    | `message.groups` | Messages in private channels |
-   | `message.im` | Direct messages |
+   | `message.im` | 1:1 direct messages between people |
    | `message.mpim` | Group DMs |
+
+   Bot-event `message.im` only covers DMs **with your app’s bot**, not your personal DMs. UTSlack uses your user token, so user events are required. You already need user scopes `im:history` / `mpim:history` (listed above); if you just added those scopes, **reinstall the app** to the workspace so they take effect. Adding event subscriptions alone usually does not prompt a reinstall.
 
 4. In UTSlack → **Settings** → set realtime source to **In-app (Slack Socket Mode)** and paste the `xapp-` token
 

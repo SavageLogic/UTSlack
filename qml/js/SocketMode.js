@@ -86,13 +86,28 @@ function parseFrame(text) {
                 if (!event.channel && ch)
                     event.channel = ch
             }
+            // Prefer explicit channel_type; fall back to Slack ID prefixes (D=IM).
+            var channelType = event.channel_type || ""
+            out.channelType = channelType
+            out.isIm = channelType === "im"
+                    || (!channelType && out.channelId && ("" + out.channelId).charAt(0) === "D")
+            out.isMpim = channelType === "mpim"
             var normalized = Models.normalizeMessages([event], { chronological: true })
             if (normalized.length > 0) {
                 out.message = normalized[0]
                 out.threadTs = out.message.threadTs || event.thread_ts || ""
                 if (!out.channelId && event.channel)
                     out.channelId = event.channel
+                // Recompute after channel fill
+                if (!out.channelType && out.channelId && ("" + out.channelId).charAt(0) === "D")
+                    out.isIm = true
             }
+            console.log("[socketmode] message", out.channelId || "?",
+                        "type=" + (channelType || "?"),
+                        "im=" + !!out.isIm,
+                        "subtype=" + (subtype || "-"),
+                        "ts=" + (out.message && out.message.ts ? out.message.ts : "?"),
+                        "normalized=" + (out.message ? "yes" : "no"))
         }
         return out
     }

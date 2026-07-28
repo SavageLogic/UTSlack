@@ -201,14 +201,19 @@ function _messageMentionsSelf(msg) {
     return Models.messageMentionsUser(msg, _selfUserId)
 }
 
+function _looksLikeIm(channelId) {
+    // Slack IM ids are D… (public C…, private/mpim often G…)
+    return !!(channelId && ("" + channelId).charAt(0) === "D")
+}
+
 function _shouldNotify(channelId, msg) {
     var mode = Storage.getEffectiveNotifyMode(channelId)
     if (mode === "mute")
         return false
     if (mode === "mentions") {
         var meta = _conversationMeta[channelId] || {}
-        // 1:1 DMs are always "for you"
-        if (meta.isIm && !meta.isMpim)
+        // 1:1 DMs are always "for you" (meta may be missing if not in watch list)
+        if ((meta.isIm && !meta.isMpim) || _looksLikeIm(channelId))
             return true
         return _messageMentionsSelf(msg)
     }
@@ -227,7 +232,8 @@ function _notifyMessage(channelId, meta, msg) {
     text = text.replace(/<[^>]+>/g, "")
     if (text.length > 120)
         text = text.substring(0, 117) + "…"
-    var body = meta && meta.isIm ? text : (author + ": " + text)
+    var asIm = (meta && meta.isIm && !meta.isMpim) || _looksLikeIm(channelId)
+    var body = asIm ? text : (author + ": " + text)
     var tag = pushTagFor(channelId, msg.ts || "")
     sendPush(title, body, tag, {
         channelId: channelId,
@@ -244,14 +250,16 @@ function handleIncomingMessage(channelId, msg, options) {
     options = options || {}
     if (!channelId || !msg)
         return false
-    var meta = _conversationMeta[channelId] || {
-        title: options.channelTitle || channelId,
-        isIm: !!options.isIm,
-        isMpim: !!options.isMpim
+    var cached = _conversationMeta[channelId] || {}
+    var meta = {
+        title: cached.title || options.channelTitle || channelId,
+        isIm: !!(cached.isIm || options.isIm || _looksLikeIm(channelId)),
+        isMpim: !!(cached.isMpim || options.isMpim)
     }
     var map = Storage.getLastSeenMap()
     var oldest = map[channelId] || "0"
     if (msg.ts && msg.ts <= oldest) {
+        console.log("[notify] skip already-seen", channelId, msg.ts, "<=", oldest)
         return false
     }
 
@@ -268,6 +276,7 @@ function handleIncomingMessage(channelId, msg, options) {
     }
 
     if (_appSendsPush && _shouldNotify(channelId, msg)) {
+        console.log("[notify] push", channelId, "im=" + meta.isIm, "ts=" + (msg.ts || ""))
         _notifyMessage(channelId, meta, msg)
         return true
     }

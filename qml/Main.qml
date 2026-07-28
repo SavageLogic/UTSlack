@@ -549,7 +549,9 @@ MainView {
         var payload = {
             channelId: parsed.channelId,
             message: parsed.message,
-            threadTs: parsed.threadTs || ""
+            threadTs: parsed.threadTs || "",
+            isIm: !!parsed.isIm,
+            isMpim: !!parsed.isMpim
         }
         root.realtimeMessage(payload)
 
@@ -558,7 +560,10 @@ MainView {
             if (parsed.message.ts)
                 Notify.markSeen(parsed.channelId, parsed.message.ts)
         } else {
-            Notify.handleIncomingMessage(parsed.channelId, parsed.message)
+            Notify.handleIncomingMessage(parsed.channelId, parsed.message, {
+                isIm: !!parsed.isIm,
+                isMpim: !!parsed.isMpim
+            })
             pendingConversationsReload = true
         }
     }
