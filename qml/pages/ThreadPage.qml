@@ -531,6 +531,26 @@ Page {
     Component.onCompleted: loadHistory(true)
     Component.onDestruction: activePolling = false
 
+    Connections {
+        target: threadPage.app
+        ignoreUnknownSignals: true
+        onRealtimeMessage: {
+            if (!payload || payload.channelId !== threadPage.channelId || !payload.message)
+                return
+            var msg = payload.message
+            var tts = payload.threadTs || msg.threadTs || ""
+            if (!tts || tts !== threadPage.threadTs)
+                return
+            if (threadPage.findMessageIndex(msg.ts) >= 0)
+                return
+            if (threadPage.newestTs && msg.ts && msg.ts <= threadPage.newestTs)
+                return
+            threadPage.appendMessages([msg], false)
+            if (msg.ts && threadPage.app && threadPage.app.markChannelSeen)
+                threadPage.app.markChannelSeen(threadPage.channelId, msg.ts)
+        }
+    }
+
     Timer {
         id: pollTimer
         interval: Math.max(3, (threadPage.app && threadPage.app.chatPollSeconds)
@@ -538,6 +558,7 @@ Page {
         repeat: true
         running: threadPage.activePolling && threadPage.channelId.length > 0
                  && threadPage.threadTs.length > 0
+                 && !(threadPage.app && threadPage.app.realtimeConnected)
         onTriggered: threadPage.pollNew()
     }
 

@@ -5,6 +5,9 @@
 
 #include <QtQml>
 #include "mediacache.h"
+#include "realtimesocket.h"
+#include "realtimesse.h"
+#include "slackhttp.h"
 
 class UTSlackPlugin : public QQmlExtensionPlugin
 {
@@ -20,6 +23,13 @@ public:
             [](QQmlEngine *, QJSEngine *) -> QObject * {
                 return new MediaCache;
             });
+        qmlRegisterSingletonType<SlackHttp>(
+            uri, 1, 0, "SlackHttp",
+            [](QQmlEngine *, QJSEngine *) -> QObject * {
+                return new SlackHttp;
+            });
+        qmlRegisterType<RealtimeSocket>(uri, 1, 0, "RealtimeSocket");
+        qmlRegisterType<RealtimeSse>(uri, 1, 0, "RealtimeSse");
     }
 };
 

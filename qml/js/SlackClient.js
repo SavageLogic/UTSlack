@@ -382,9 +382,11 @@ function _friendlyError(code) {
     if (!code)
         return ""
     if (code === "invalid_auth")
-        return "invalid_auth — use a User OAuth Token (xoxp-…), not a bot token (xoxb-). Reinstall the app to your workspace after adding user scopes."
+        return "invalid_auth — for Socket Mode use an App-Level Token (xapp-…) with connections:write; Slack requires it in the Authorization header. Reinstall is not needed for app-level tokens."
     if (code === "token_revoked" || code === "token_expired")
         return code + " — generate a fresh User OAuth Token from the Slack app OAuth page."
+    if (code === "not_allowed_token_type")
+        return "not_allowed_token_type — apps.connections.open needs an xapp- App-Level Token, not xoxp-/xoxb-."
     if (code === "missing_scope")
         return "missing_scope — add the required User Token Scopes and reinstall the app."
     if (code === "not_authed")
@@ -423,6 +425,63 @@ function authTest(callback) {
         }
         callback(res)
     })
+}
+
+// Socket Mode: open a temporary WSS URL with an app-level token (xapp-…).
+// Does not use the user xoxp- token.
+function appsConnectionsOpen(appToken, callback) {
+    if (!callback)
+        callback = function() {}
+    var cleaned = sanitizeToken(appToken)
+    if (!cleaned || cleaned.indexOf("xapp-") !== 0) {
+        callback({
+            ok: false,
+            error: "invalid_app_token",
+            message: "App-level token must start with xapp-"
+        })
+        return
+    }
+
+    var xhr = new XMLHttpRequest()
+    xhr.onreadystatechange = function() {
+        if (xhr.readyState !== XMLHttpRequest.DONE)
+            return
+        if (xhr.status === 0) {
+            callback({
+                ok: false,
+                error: "network_error",
+                message: "Network error opening Socket Mode connection"
+            })
+            return
+        }
+        var response = null
+        try {
+            response = JSON.parse(xhr.responseText || "{}")
+        } catch (e) {
+            callback({
+                ok: false,
+                error: "invalid_json",
+                message: "Failed to parse apps.connections.open response"
+            })
+            return
+        }
+        if (xhr.status < 200 || xhr.status >= 300) {
+            callback({
+                ok: false,
+                error: (response && response.error) || "http_error",
+                message: (response && response.error) || ("HTTP " + xhr.status)
+            })
+            return
+        }
+        if (response && response.ok === false && response.error)
+            response.message = _friendlyError(response.error) || response.error
+        callback(response)
+    }
+    xhr.open("POST", API_BASE + "apps.connections.open")
+    xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded")
+    xhr.setRequestHeader("Authorization", "Bearer " + cleaned)
+    // Body token as fallback when QML drops Authorization
+    xhr.send("token=" + encodeURIComponent(cleaned))
 }
 
 function conversationsListPage(cursor, callback) {

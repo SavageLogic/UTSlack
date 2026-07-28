@@ -346,6 +346,40 @@ Page {
         }
     }
 
+    Connections {
+        target: conversationsPage.app
+        ignoreUnknownSignals: true
+        onRealtimeMessage: {
+            if (!payload || !payload.channelId || !payload.message)
+                return
+            if (conversationsPage.app && payload.channelId === conversationsPage.app.lastReadChannelId)
+                return
+            if (payload.message.userId && conversationsPage.app
+                    && payload.message.userId === conversationsPage.app.userId)
+                return
+            conversationsPage.markChannelUnread(payload.channelId)
+        }
+    }
+
+    function markChannelUnread(channelId) {
+        if (!channelId)
+            return
+        var i
+        for (i = 0; i < allItems.length; i++) {
+            if (allItems[i] && allItems[i].id === channelId) {
+                allItems[i].hasUnread = true
+                break
+            }
+        }
+        for (var r = 0; r < conversationModel.count; r++) {
+            if (conversationModel.get(r).rowType === "item"
+                    && conversationModel.get(r).convId === channelId) {
+                conversationModel.setProperty(r, "hasUnread", true)
+                break
+            }
+        }
+    }
+
     Component {
         id: notifyMenuComponent
         Popover {

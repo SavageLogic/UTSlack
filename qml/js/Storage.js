@@ -61,6 +61,44 @@ function clearToken() {
     setToken("")
 }
 
+// Slack app-level token for Socket Mode (xapp-…).
+function getAppToken() {
+    return get("appToken", "") || ""
+}
+
+function setAppToken(token) {
+    set("appToken", token || "")
+}
+
+function clearAppToken() {
+    setAppToken("")
+}
+
+// Realtime source: "socket" (in-app Socket Mode) or "relay" (external SSE).
+function getRealtimeMode() {
+    var v = (get("realtimeMode", "socket") || "socket").toLowerCase()
+    if (v === "relay")
+        return "relay"
+    return "socket"
+}
+
+function setRealtimeMode(mode) {
+    var m = ("" + (mode || "socket")).toLowerCase()
+    set("realtimeMode", m === "relay" ? "relay" : "socket")
+}
+
+function getRelaySseUrl() {
+    return get("relaySseUrl", "") || ""
+}
+
+function setRelaySseUrl(url) {
+    set("relaySseUrl", url || "")
+}
+
+function clearRelaySseUrl() {
+    setRelaySseUrl("")
+}
+
 function getNotificationsEnabled() {
     var v = get("notificationsEnabled", "1")
     return v !== "0" && v !== "false"

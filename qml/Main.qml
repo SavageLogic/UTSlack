@@ -8,10 +8,13 @@ import QtQuick 2.7
 import Lomiri.Components 1.3
 import Ubuntu.PushNotifications 0.1
 import Lomiri.Content 1.3
+import UTSlack 1.0
 import "js/SlackClient.js" as Slack
 import "js/Storage.js" as Storage
 import "js/Models.js" as Models
 import "js/Notify.js" as Notify
+import "js/SocketMode.js" as SocketMode
+import "js/RelaySse.js" as RelaySse
 
 MainView {
     id: root
@@ -40,10 +43,25 @@ MainView {
     // Only set when launched via utslack:// — never from push mailbox noise.
     property bool pendingFromDeepLinkUrl: false
 
+    // Realtime: "socket" | "relay"
+    property string realtimeMode: "socket"
+    property string appToken: ""
+    property string relaySseUrl: ""
+    property bool realtimeConnected: false
+    property string realtimeStatus: ""
+    property bool realtimeWanted: false
+    property bool realtimeClosing: false
+    property int realtimeBackoffMs: 1000
+    // Mirror of Notify.appSendsPush for QML bindings (poll timer).
+    property bool notifyAppSendsPush: true
+
     // Incoming Content Hub share (links / files from other apps)
     property var pendingShareTransfer: null
     property var pendingSharePayload: null
     property bool sharePageOpen: false
+
+    // Payload: { channelId, message, threadTs }
+    signal realtimeMessage(var payload)
 
     AppTheme {
         id: appTheme
@@ -237,8 +255,87 @@ MainView {
         interval: Math.max(10, root.notifyPollSeconds) * 1000
         repeat: true
         running: root.ready && root.notificationsEnabled
+                 && !root.realtimeConnected
+                 && root.notifyAppSendsPush
                  && Qt.application.state !== Qt.ApplicationSuspended
         onTriggered: Notify.pollOnce()
+    }
+
+    RealtimeSocket {
+        id: slackSocket
+        onTextReceived: root.onSocketText(text)
+        onActiveChanged: {
+            root.syncRealtimeConnected()
+            if (root.realtimeClosing)
+                return
+            if (!slackSocket.active && root.realtimeWanted && root.realtimeMode === "socket"
+                    && Qt.application.state !== Qt.ApplicationSuspended)
+                root.scheduleRealtimeReconnect()
+        }
+        onStatusChanged: root.syncRealtimeStatus()
+        onLastErrorChanged: {
+            if (slackSocket.lastError)
+                root.realtimeStatus = slackSocket.lastError
+        }
+    }
+
+    RealtimeSse {
+        id: relaySse
+        onEventReceived: root.onRelayEvent(data)
+        onActiveChanged: {
+            root.syncRealtimeConnected()
+            if (root.realtimeClosing)
+                return
+            if (!relaySse.active && root.realtimeWanted && root.realtimeMode === "relay"
+                    && Qt.application.state !== Qt.ApplicationSuspended)
+                root.scheduleRealtimeReconnect()
+        }
+        onStatusChanged: root.syncRealtimeStatus()
+        onLastErrorChanged: {
+            if (relaySse.lastError)
+                root.realtimeStatus = relaySse.lastError
+        }
+    }
+
+    Connections {
+        target: SlackHttp
+        onAppsConnectionsOpenFinished: {
+            if (!root.realtimeWanted || root.realtimeMode !== "socket")
+                return
+            if (!ok || !url) {
+                root.realtimeStatus = error || i18n.tr("Socket Mode open failed")
+                root.scheduleRealtimeReconnect()
+                return
+            }
+            slackSocket.url = url
+            slackSocket.open()
+            root.syncRealtimeStatus()
+        }
+    }
+
+    Timer {
+        id: realtimeReconnectTimer
+        interval: root.realtimeBackoffMs
+        repeat: false
+        onTriggered: {
+            if (root.realtimeWanted && root.ready
+                    && Qt.application.state !== Qt.ApplicationSuspended)
+                root.connectRealtime()
+        }
+    }
+
+    Connections {
+        target: Qt.application
+        onStateChanged: {
+            if (!root.ready)
+                return
+            if (Qt.application.state === Qt.ApplicationSuspended) {
+                root.disconnectRealtime(false)
+            } else if (root.realtimeWanted) {
+                root.realtimeBackoffMs = 1000
+                root.connectRealtime()
+            }
+        }
     }
 
     function setNotificationsEnabled(enabled) {
@@ -260,6 +357,210 @@ MainView {
     function loadPollPrefs() {
         chatPollSeconds = Storage.getChatPollSeconds()
         notifyPollSeconds = Storage.getNotifyPollSeconds()
+    }
+
+    function loadRealtimePrefs() {
+        realtimeMode = Storage.getRealtimeMode()
+        appToken = Storage.getAppToken()
+        relaySseUrl = Storage.getRelaySseUrl()
+        notifyAppSendsPush = realtimeMode !== "relay"
+        Notify.setAppSendsPush(notifyAppSendsPush)
+    }
+
+    function setAppToken(token) {
+        var cleaned = SocketMode.sanitizeAppToken(token)
+        if (cleaned && cleaned.indexOf("xapp-") !== 0) {
+            realtimeStatus = i18n.tr("App token must start with xapp-")
+            return false
+        }
+        appToken = cleaned
+        Storage.setAppToken(cleaned)
+        if (ready && realtimeMode === "socket")
+            restartRealtime()
+        return true
+    }
+
+    function setRealtimeMode(mode) {
+        var m = (mode === "relay") ? "relay" : "socket"
+        realtimeMode = m
+        Storage.setRealtimeMode(m)
+        notifyAppSendsPush = m !== "relay"
+        Notify.setAppSendsPush(notifyAppSendsPush)
+        if (ready)
+            restartRealtime()
+    }
+
+    function setRelaySseUrl(url) {
+        relaySseUrl = ("" + (url || "")).trim()
+        Storage.setRelaySseUrl(relaySseUrl)
+        if (ready && realtimeMode === "relay")
+            restartRealtime()
+    }
+
+    function syncRealtimeConnected() {
+        var connected = false
+        if (realtimeMode === "socket")
+            connected = slackSocket.active
+        else
+            connected = relaySse.active
+        realtimeConnected = connected
+        if (connected)
+            realtimeBackoffMs = 1000
+    }
+
+    function syncRealtimeStatus() {
+        if (realtimeMode === "socket") {
+            if (slackSocket.active)
+                realtimeStatus = i18n.tr("Socket Mode connected")
+            else if (slackSocket.status === "connecting")
+                realtimeStatus = i18n.tr("Connecting to Slack…")
+            else if (slackSocket.lastError)
+                realtimeStatus = slackSocket.lastError
+            else if (realtimeWanted && appToken)
+                realtimeStatus = i18n.tr("Socket Mode disconnected")
+            else if (!appToken)
+                realtimeStatus = i18n.tr("Add an xapp- token for Socket Mode")
+            else
+                realtimeStatus = ""
+        } else {
+            if (relaySse.active)
+                realtimeStatus = i18n.tr("Relay SSE connected")
+            else if (relaySse.status === "connecting")
+                realtimeStatus = i18n.tr("Connecting to relay…")
+            else if (relaySse.lastError)
+                realtimeStatus = relaySse.lastError
+            else if (realtimeWanted && relaySseUrl)
+                realtimeStatus = i18n.tr("Relay disconnected")
+            else if (!relaySseUrl)
+                realtimeStatus = i18n.tr("Set a relay SSE URL")
+            else
+                realtimeStatus = ""
+        }
+    }
+
+    function disconnectRealtime(clearWanted) {
+        realtimeReconnectTimer.stop()
+        if (clearWanted)
+            realtimeWanted = false
+        realtimeClosing = true
+        slackSocket.close()
+        relaySse.close()
+        realtimeClosing = false
+        syncRealtimeConnected()
+        syncRealtimeStatus()
+    }
+
+    function restartRealtime() {
+        disconnectRealtime(false)
+        realtimeBackoffMs = 1000
+        if (ready)
+            startRealtimeIfConfigured()
+    }
+
+    function startRealtimeIfConfigured() {
+        if (!ready)
+            return
+        if (Qt.application.state === Qt.ApplicationSuspended)
+            return
+        if (realtimeMode === "socket") {
+            if (!SocketMode.isValidAppToken(appToken)) {
+                realtimeWanted = false
+                syncRealtimeStatus()
+                return
+            }
+            realtimeWanted = true
+            connectRealtime()
+        } else if (realtimeMode === "relay") {
+            if (!relaySseUrl) {
+                realtimeWanted = false
+                syncRealtimeStatus()
+                return
+            }
+            realtimeWanted = true
+            connectRealtime()
+        } else {
+            realtimeWanted = false
+        }
+    }
+
+    function connectRealtime() {
+        if (!realtimeWanted || !ready)
+            return
+        if (Qt.application.state === Qt.ApplicationSuspended)
+            return
+
+        if (realtimeMode === "socket") {
+            relaySse.close()
+            if (!SocketMode.isValidAppToken(appToken)) {
+                syncRealtimeStatus()
+                return
+            }
+            realtimeStatus = i18n.tr("Opening Socket Mode…")
+            // QML XHR often drops Authorization; apps.connections.open requires
+            // Bearer xapp- in the header (body-only token → invalid_auth).
+            SlackHttp.appsConnectionsOpen(appToken)
+        } else {
+            slackSocket.close()
+            if (!relaySseUrl) {
+                syncRealtimeStatus()
+                return
+            }
+            relaySse.url = relaySseUrl
+            relaySse.open()
+            syncRealtimeStatus()
+        }
+    }
+
+    function scheduleRealtimeReconnect() {
+        if (!realtimeWanted)
+            return
+        if (Qt.application.state === Qt.ApplicationSuspended)
+            return
+        realtimeReconnectTimer.interval = realtimeBackoffMs
+        realtimeReconnectTimer.restart()
+        realtimeBackoffMs = Math.min(realtimeBackoffMs * 2, 60000)
+    }
+
+    function onSocketText(text) {
+        var parsed = SocketMode.parseFrame(text)
+        if (!parsed)
+            return
+        if (parsed.envelopeId)
+            SocketMode.ackEnvelope(slackSocket, parsed.envelopeId)
+        if (parsed.kind === "disconnect") {
+            slackSocket.close()
+            scheduleRealtimeReconnect()
+            return
+        }
+        if (parsed.kind === "events_api" && parsed.message && parsed.channelId)
+            handleRealtimeMessage(parsed)
+    }
+
+    function onRelayEvent(data) {
+        var parsed = RelaySse.parseEvent(data)
+        if (!parsed || !parsed.message || !parsed.channelId)
+            return
+        handleRealtimeMessage(parsed)
+    }
+
+    function handleRealtimeMessage(parsed) {
+        if (!parsed || !parsed.channelId || !parsed.message)
+            return
+        var payload = {
+            channelId: parsed.channelId,
+            message: parsed.message,
+            threadTs: parsed.threadTs || ""
+        }
+        root.realtimeMessage(payload)
+
+        // Open conversation: mark seen only (no push). Others: notify path.
+        if (parsed.channelId === lastReadChannelId) {
+            if (parsed.message.ts)
+                Notify.markSeen(parsed.channelId, parsed.message.ts)
+        } else {
+            Notify.handleIncomingMessage(parsed.channelId, parsed.message)
+            pendingConversationsReload = true
+        }
     }
 
     // Push mailbox delivery only — never navigate. Regular launches deliver
@@ -439,18 +740,25 @@ MainView {
         Notify.setSelfUserId(userId)
         Notify.loadPrefs()
         notificationsEnabled = Notify.isEnabled()
+        loadRealtimePrefs()
+        startRealtimeIfConfigured()
     }
 
     function logout() {
+        disconnectRealtime(true)
         Storage.clearToken()
+        Storage.clearAppToken()
         Storage.clearAllCaches()
         Slack.setToken("")
         Slack.clearCache()
         Notify.setConversations([])
+        appToken = ""
         userId = ""
         userName = ""
         teamName = ""
         ready = false
+        realtimeConnected = false
+        realtimeStatus = ""
         pageStack.clear()
         pageStack.push(Qt.resolvedUrl("pages/LoginPage.qml"), { app: root })
     }
@@ -950,6 +1258,7 @@ MainView {
             Notify.loadPrefs()
             notificationsEnabled = Notify.isEnabled()
             root.loadPollPrefs()
+            root.loadRealtimePrefs()
             Storage.purgeExpiredCache()
         } catch (e) {
             console.warn("[startup] init error", e)

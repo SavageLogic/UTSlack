@@ -13,6 +13,8 @@ var _enabled = true
 var _busy = false
 var _conversationIds = []
 var _conversationMeta = {}
+// When true (relay mode), skip sendPush — relay owns notifications.
+var _appSendsPush = true
 
 function setPushToken(token) {
     _pushToken = token || ""
@@ -33,6 +35,14 @@ function setEnabled(enabled) {
 
 function isEnabled() {
     return _enabled
+}
+
+function setAppSendsPush(enabled) {
+    _appSendsPush = !!enabled
+}
+
+function appSendsPush() {
+    return _appSendsPush
 }
 
 function loadPrefs() {
@@ -57,6 +67,10 @@ function setConversations(items) {
     }
 }
 
+function conversationMeta(channelId) {
+    return _conversationMeta[channelId] || {}
+}
+
 function initializeSeenBaselines() {
     var map = Storage.getLastSeenMap()
     var now = "" + (Date.now() / 1000)
@@ -74,6 +88,12 @@ function initializeSeenBaselines() {
 
 function markSeen(channelId, ts) {
     Storage.markChannelSeen(channelId, ts)
+}
+
+function pushTagFor(channelId, ts) {
+    if (channelId && ts)
+        return channelId + ":" + ts
+    return channelId || "utslack"
 }
 
 function deepLinkForMessage(messageObj) {
@@ -166,7 +186,7 @@ function sendTestNotification(kind) {
         ? "Test DM notification from UTSlack"
         : "Someone: Test channel notification from UTSlack"
     var ts = "" + (Date.now() / 1000)
-    var ok = sendPush(title, body, "utslack-test-" + kind, {
+    var ok = sendPush(title, body, pushTagFor(channelId, ts), {
         channelId: channelId,
         channelTitle: title,
         ts: ts,
@@ -208,7 +228,8 @@ function _notifyMessage(channelId, meta, msg) {
     if (text.length > 120)
         text = text.substring(0, 117) + "…"
     var body = meta && meta.isIm ? text : (author + ": " + text)
-    sendPush(title, body, channelId, {
+    var tag = pushTagFor(channelId, msg.ts || "")
+    sendPush(title, body, tag, {
         channelId: channelId,
         channelTitle: title,
         ts: msg.ts || ""
@@ -217,8 +238,53 @@ function _notifyMessage(channelId, meta, msg) {
         markSeen(channelId, msg.ts)
 }
 
+// Shared by poller and Socket Mode. sendPushOnly applies mute/prefs;
+// when _appSendsPush is false (relay mode), only advances lastSeenMap.
+function handleIncomingMessage(channelId, msg, options) {
+    options = options || {}
+    if (!channelId || !msg)
+        return false
+    var meta = _conversationMeta[channelId] || {
+        title: options.channelTitle || channelId,
+        isIm: !!options.isIm,
+        isMpim: !!options.isMpim
+    }
+    var map = Storage.getLastSeenMap()
+    var oldest = map[channelId] || "0"
+    if (msg.ts && msg.ts <= oldest) {
+        return false
+    }
+
+    if (!_enabled) {
+        if (msg.ts)
+            markSeen(channelId, msg.ts)
+        return false
+    }
+
+    if (_selfUserId && msg.userId === _selfUserId) {
+        if (msg.ts)
+            markSeen(channelId, msg.ts)
+        return false
+    }
+
+    if (_appSendsPush && _shouldNotify(channelId, msg)) {
+        _notifyMessage(channelId, meta, msg)
+        return true
+    }
+
+    if (msg.ts)
+        markSeen(channelId, msg.ts)
+    return false
+}
+
 function pollOnce(callback) {
     if (!_enabled || _busy || !_pushToken || _conversationIds.length === 0) {
+        if (callback)
+            callback(false)
+        return
+    }
+    // In relay mode the relay owns pushes; skip notify polling.
+    if (!_appSendsPush) {
         if (callback)
             callback(false)
         return

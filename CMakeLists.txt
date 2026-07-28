@@ -18,16 +18,22 @@ set(DATA_DIR /)
 set(DESKTOP_FILE_NAME ${PROJECT_NAME}.desktop)
 set(QT_IMPORTS_DIR lib/${ARCH_TRIPLET})
 
-find_package(Qt5 REQUIRED COMPONENTS Core Gui Qml Quick Network)
+find_package(Qt5 REQUIRED COMPONENTS Core Gui Qml Quick Network WebSockets)
 
 configure_file(manifest.json.in ${CMAKE_CURRENT_BINARY_DIR}/manifest.json)
 configure_file(${DESKTOP_FILE_NAME}.in ${CMAKE_CURRENT_BINARY_DIR}/${DESKTOP_FILE_NAME})
 
-# QML plugin (MediaCache) — app itself still launches via qmlscene
+# QML plugin (MediaCache, realtime transports) — app launches via qmlscene
 add_library(utslackplugin SHARED
     src/plugin.cpp
     src/mediacache.cpp
     src/mediacache.h
+    src/realtimesocket.cpp
+    src/realtimesocket.h
+    src/realtimesse.cpp
+    src/realtimesse.h
+    src/slackhttp.cpp
+    src/slackhttp.h
 )
 
 target_link_libraries(utslackplugin
@@ -36,6 +42,7 @@ target_link_libraries(utslackplugin
     Qt5::Qml
     Qt5::Quick
     Qt5::Network
+    Qt5::WebSockets
 )
 
 set_target_properties(utslackplugin PROPERTIES

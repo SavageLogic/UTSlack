@@ -121,7 +121,7 @@ Page {
                 visible: notifSwitch.checked
 
                 Label {
-                    text: i18n.tr("Polling")
+                    text: i18n.tr("Realtime source")
                     font.bold: true
                 }
 
@@ -130,7 +130,118 @@ Page {
                     wrapMode: Text.Wrap
                     fontSize: "small"
                     color: theme.palette.normal.backgroundSecondaryText
-                    text: i18n.tr("How often UTSlack asks Slack for updates. Shorter intervals feel snappier but use more battery and API calls.")
+                    text: i18n.tr("Choose in-app Slack Socket Mode, or an external relay over SSE. Only one should own Slack events.")
+                }
+
+                OptionSelector {
+                    id: realtimeModeSelector
+                    width: parent.width
+                    text: i18n.tr("Updates & notifications")
+                    model: [
+                        i18n.tr("In-app (Slack Socket Mode)"),
+                        i18n.tr("External relay (SSE)")
+                    ]
+                    containerHeight: itemHeight * 2
+                    Component.onCompleted: {
+                        selectedIndex = (app && app.realtimeMode === "relay") ? 1 : 0
+                    }
+                    onSelectedIndexChanged: {
+                        if (!app || !app.setRealtimeMode)
+                            return
+                        var mode = selectedIndex === 1 ? "relay" : "socket"
+                        if (mode !== app.realtimeMode)
+                            app.setRealtimeMode(mode)
+                    }
+                }
+
+                Label {
+                    width: parent.width
+                    wrapMode: Text.Wrap
+                    fontSize: "small"
+                    color: theme.palette.normal.backgroundSecondaryText
+                    text: (app && app.realtimeStatus) ? app.realtimeStatus : ""
+                    visible: text.length > 0
+                }
+
+                Column {
+                    width: parent.width
+                    spacing: units.gu(1)
+                    visible: realtimeModeSelector.selectedIndex === 0
+
+                    Label {
+                        text: i18n.tr("App-level token")
+                        font.bold: true
+                    }
+                    Label {
+                        width: parent.width
+                        wrapMode: Text.Wrap
+                        fontSize: "small"
+                        color: theme.palette.normal.backgroundSecondaryText
+                        text: i18n.tr("From api.slack.com → your app → Basic Information → App-Level Tokens (xapp-… with connections:write). Enable Socket Mode and Event Subscriptions for messages.")
+                    }
+                    TextField {
+                        id: appTokenField
+                        width: parent.width
+                        echoMode: TextInput.Password
+                        placeholderText: i18n.tr("xapp-…")
+                        text: app ? (app.appToken || "") : ""
+                    }
+                    Button {
+                        width: parent.width
+                        text: i18n.tr("Save app token")
+                        onClicked: {
+                            if (!app || !app.setAppToken)
+                                return
+                            app.setAppToken(appTokenField.text.trim())
+                        }
+                    }
+                }
+
+                Column {
+                    width: parent.width
+                    spacing: units.gu(1)
+                    visible: realtimeModeSelector.selectedIndex === 1
+
+                    Label {
+                        text: i18n.tr("Relay SSE URL")
+                        font.bold: true
+                    }
+                    Label {
+                        width: parent.width
+                        wrapMode: Text.Wrap
+                        fontSize: "small"
+                        color: theme.palette.normal.backgroundSecondaryText
+                        text: i18n.tr("Must be reachable from this device (VPS, Tailscale, or tunnel). The relay owns Slack events and UBports pushes; the app only streams UI updates over SSE.")
+                    }
+                    TextField {
+                        id: relayUrlField
+                        width: parent.width
+                        placeholderText: i18n.tr("https://relay.example.com/events")
+                        inputMethodHints: Qt.ImhUrlCharactersOnly
+                        text: app ? (app.relaySseUrl || "") : ""
+                    }
+                    Button {
+                        width: parent.width
+                        text: i18n.tr("Save relay URL")
+                        onClicked: {
+                            if (!app || !app.setRelaySseUrl)
+                                return
+                            app.setRelaySseUrl(relayUrlField.text.trim())
+                        }
+                    }
+                }
+
+                Label {
+                    text: i18n.tr("Polling fallback")
+                    font.bold: true
+                }
+
+                Label {
+                    width: parent.width
+                    wrapMode: Text.Wrap
+                    fontSize: "small"
+                    color: theme.palette.normal.backgroundSecondaryText
+                    text: i18n.tr("Used when the live connection is down. Shorter intervals feel snappier but use more battery and API calls.")
                 }
 
                 OptionSelector {
@@ -293,7 +404,7 @@ Page {
         Dialog {
             id: dialogue
             title: i18n.tr("Log out?")
-            text: i18n.tr("This removes the saved token from this device.")
+            text: i18n.tr("This removes the saved user token and app-level token from this device.")
             Button {
                 text: i18n.tr("Log out")
                 color: theme.palette.normal.negative

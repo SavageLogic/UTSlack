@@ -12,14 +12,16 @@ Native Slack client for [Ubuntu Touch](https://ubuntu-touch.io/), built with QML
 - Search within a conversation
 - Send messages and upload photos/files
 - **Emoji reactions** — view, toggle, and add from a quick picker
-- Poll for new messages while a chat is open (~8s)
-- Push notifications for new messages while the app is running (UBports Push)
+- **Realtime updates** via Slack Socket Mode (`xapp-…`) or an external relay (SSE)
+- Push notifications for new messages (in-app Socket Mode, or via your relay)
+- Polling fallback when the live connection is down
 
 ## Requirements
 
 - [Clickable](https://clickable-ut.dev/) 8.4.0+
 - Ubuntu Touch device (or `clickable desktop` on Linux)
 - A Slack app with **user** token scopes (see below)
+- For Socket Mode: an **App-Level Token** (`xapp-…`) with `connections:write`
 
 ## Create a Slack app token
 
@@ -52,6 +54,23 @@ Native Slack client for [Ubuntu Touch](https://ubuntu-touch.io/), built with QML
 4. Copy the **User OAuth Token** (`xoxp-…`) — not the bot token
 5. Paste it into UTSlack’s Connect screen
 
+### Socket Mode (recommended for live UI)
+
+1. In your Slack app → **Basic Information** → **App-Level Tokens** → create a token with `connections:write` (`xapp-…`)
+2. Enable **Socket Mode**
+3. Under **Event Subscriptions**, turn on events and subscribe to these **on behalf of users** (not bot events):
+
+   | Event | Purpose |
+   |-------|---------|
+   | `message.channels` | Messages in public channels |
+   | `message.groups` | Messages in private channels |
+   | `message.im` | Direct messages |
+   | `message.mpim` | Group DMs |
+
+4. In UTSlack → **Settings** → set realtime source to **In-app (Slack Socket Mode)** and paste the `xapp-` token
+
+Creating or rotating an **App-Level Token** does **not** require reinstalling the app to the workspace (that prompt is for OAuth scope changes on user/bot tokens).
+
 ## Build and run
 
 ```bash
@@ -69,28 +88,54 @@ If `clickable desktop` hangs after `XDG_RUNTIME_DIR` / never opens a window, you
 
 Framework target: `ubuntu-touch-24.04-1.x` (see `clickable.yaml`).
 
-## Notifications
+## Notifications & realtime
 
-UTSlack registers with **UBports Push** and polls Slack for new messages about every 45s while the app is running (or kept alive in the background). New messages are delivered as system notifications via a push helper.
+UTSlack registers with **UBports Push**. Choose a realtime source in **Settings**:
 
-- Toggle in **Settings → Message notifications**
+| Mode | Live UI | Pushes |
+|------|---------|--------|
+| **In-app Socket Mode** | Slack WebSocket | App sends to `push.ubports.com` while running |
+| **External relay (SSE)** | App opens SSE to your relay URL | Relay sends pushes; app does not |
+
 - Device must be signed in to an **OpenStore / UBports** account (PushClient auth)
 - Popups may be suppressed while UTSlack is in the foreground (platform behavior)
-- True lock-screen push when the app is fully suspended would need a separate Slack→UBports relay server (not included)
+- When the live path is down, chat/notify **polling** is used as fallback
+- If the app was closed, opening a conversation loads history from Slack (normal catch-up)
+
+### External relay contract (not shipped)
+
+Your relay must be **reachable** from the phone (VPS, Tailscale, tunnel — not a plain NAT desktop with no path).
+
+- Own Slack’s event stream (HTTP Events API or Socket Mode on the relay only — do not also run Socket Mode in the app)
+- Expose an SSE endpoint the app `GET`s with `Accept: text/event-stream`
+- Stream JSON events, for example:
+
+```text
+data: {"type":"message","channelId":"C123","user":"U456","text":"hello","ts":"1710000000.000100"}
+
+```
+
+- Send UBports Push with deep link `utslack://open?channel=…` and prefer notification tag `channelId:ts` for dedupe
+- The app does not call `sendPush` in relay mode
 
 ## Project layout
 
 ```
 qml/
-  Main.qml                 # Auth gate, PageStack, PushClient, API façade
+  Main.qml                 # Auth gate, PageStack, PushClient, realtime, API façade
   AppTheme.qml             # Adaptive light/dark brand + bubble colors
   pages/                   # Login, conversations, chat, thread, settings, share target
   components/              # List/message/composer widgets
   js/
     SlackClient.js         # Slack Web API + pagination / 429 backoff
+    SocketMode.js          # Socket Mode protocol helpers
+    RelaySse.js            # Relay SSE event parsing
     Models.js              # Normalize API payloads for the UI
-    Storage.js             # Persist token + notification prefs
-    Notify.js              # Unread poller + UBports Push sender
+    Storage.js             # Persist tokens + notification / realtime prefs
+    Notify.js              # Notify helpers + UBports Push sender
+src/
+  realtimesocket.*         # QWebSocket wrapper (Socket Mode)
+  realtimesse.*            # SSE client (relay)
 push/
   pushexec                 # Push helper (passthrough)
   push-helper.json
@@ -101,7 +146,7 @@ utslack-contenthub.json    # Content Hub share destination (links, media, …)
 
 ## Privacy
 
-Your token is stored only on-device in the app’s LocalStorage database. Logging out clears it. The app talks directly to `https://slack.com/api/` and `https://push.ubports.com/notify` — there is no intermediate Slack relay server.
+Your tokens are stored only on-device in the app’s LocalStorage database. Logging out clears the user token and app-level token. The app talks to `https://slack.com/api/`, Slack Socket Mode WSS (when configured), your relay SSE URL (when configured), and `https://push.ubports.com/notify`.
 
 ## Share from other apps
 
@@ -109,7 +154,7 @@ UTSlack registers as a Content Hub share target for **links**, text, pictures, d
 
 ## Not in v1
 
-Background daemon when fully suspended, and embedded OAuth (bring-your-own Client ID) are out of scope for this release.
+Background daemon when fully suspended without a relay, embedding OAuth (bring-your-own Client ID), and a bundled relay server are out of scope for this release.
 
 ## License
 
